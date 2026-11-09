@@ -15,7 +15,7 @@ def live():
 def ready():
     with transaction() as conn:
         count = scalar(
-            conn, "SELECT COUNT(*) FROM schema_migrations WHERE name='017_cookie_sessions.sql'"
+            conn, "SELECT COUNT(*) FROM schema_migrations WHERE name='018_company_scoped_evaluations.sql'"
         )
     if count != 1:
         raise ApiError("SCHEMA_NOT_READY", 503)

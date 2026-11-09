@@ -200,13 +200,13 @@ def add_attendance(conn, employees):
         day += timedelta(days=1)
 
 
-def add_evaluations(conn, employees):
+def add_evaluations(conn, company_id, employees):
     day = today()
     half = "H1" if day.month <= 6 else "H2"
     year = day.year
     period_start = day.replace(month=1 if half == "H1" else 7, day=1)
     period_id = insert(conn, "evaluation_periods", {
-        "evaluation_year": year, "evaluation_half": half,
+        "company_id": company_id, "evaluation_year": year, "evaluation_half": half,
         "start_date": period_start,
         "end_date": day.replace(month=6 if half == "H1" else 12, day=30 if half == "H1" else 31),
         "status": "IN_PROGRESS",
@@ -311,7 +311,7 @@ def db_seed_demo():
         employees, users = add_people(conn, company_id, reference, role_ids, passwords)
         add_payroll(conn, employees)
         add_attendance(conn, employees)
-        add_evaluations(conn, employees)
+        add_evaluations(conn, company_id, employees)
         add_approvals(conn, users)
         add_events(conn, company_id)
     click.echo("Sample data created: 1 company, 5 departments, 10 employees/users, plus payroll, attendance, evaluations, approvals and events.")

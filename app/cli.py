@@ -44,8 +44,8 @@ def db_upgrade(base_dir, baseline_existing):
     if [int(path.name[:3]) for path in base_files] != list(range(1, 15)):
         raise click.ClickException("Expected exactly one base SQL script for each of 001-014")
     names = [path.name for path in sql_files]
-    if not {"015_api_contract.sql", "016_jwt_and_workflows.sql", "017_cookie_sessions.sql"}.issubset(names):
-        raise click.ClickException("Missing required SQL files 015-017 in database/")
+    if not {"015_api_contract.sql", "016_jwt_and_workflows.sql", "017_cookie_sessions.sql", "018_company_scoped_evaluations.sql"}.issubset(names):
+        raise click.ClickException("Missing required SQL files 015-018 in database/")
     if len(names) != len(set(names)):
         raise click.ClickException("SQL filenames must be unique within database/")
     with (
@@ -88,6 +88,24 @@ def db_upgrade(base_dir, baseline_existing):
                         raise click.ClickException(f"Applied migration changed: {path.name}")
                     click.echo(f"Skipped {path.name}")
                     continue
+                if path.name == "018_company_scoped_evaluations.sql":
+                    ambiguous = scalar(
+                        conn,
+                        "SELECT COUNT(*) FROM ("
+                        "SELECT p.evaluation_period_id FROM evaluation_periods p "
+                        "LEFT JOIN employee_evaluations v "
+                        "ON v.evaluation_period_id=p.evaluation_period_id "
+                        "LEFT JOIN employees e ON e.employee_id=v.employee_id "
+                        "GROUP BY p.evaluation_period_id "
+                        "HAVING COUNT(DISTINCT e.company_id)>1 OR "
+                        "(COUNT(DISTINCT e.company_id)=0 AND (SELECT COUNT(*) FROM companies)<>1)"
+                        ") ambiguous_periods",
+                    )
+                    if ambiguous:
+                        raise click.ClickException(
+                            "Legacy evaluation periods belong to multiple or unknown companies; "
+                            "resolve ownership before applying migration 018"
+                        )
                 baseline = baseline_existing and path in base_files
                 if not baseline:
                     for statement in statements(source):
