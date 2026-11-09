@@ -1,6 +1,6 @@
 # HRIS Backend
 
-Flask + MySQL 8.4 기반 HRIS REST API입니다. 노션 **데이터베이스 프로그래밍 → Term Project → API 명세서**를 기준으로 `/api/v1` 엔드포인트를 제공합니다. 인증은 쿠키 세션 및 CSRF, 데이터 저장은 MySQL, 애플리케이션 실행은 Gunicorn을 사용합니다.
+Flask + MySQL 8.4 기반 HRIS REST API입니다. 노션 **데이터베이스 프로그래밍 → Term Project → API 명세서**를 기준으로 `/api/v1` 엔드포인트를 제공합니다. 인증은 HttpOnly 쿠키 세션 및 CSRF, 데이터 저장은 MySQL, 애플리케이션 실행은 Gunicorn을 사용합니다.
 
 ## 프로젝트 구조
 
@@ -83,10 +83,14 @@ cat ./seed-credentials.csv
 - `POST /api/v1/evaluations/{evaluation_id}/stage-records` (`EVAL-04`)
 
 노션 명세와 일치하도록 급여 변경 이력의 기본 조회 기간을 직원 입사일~오늘로 조정했고,
-평가 회차 및 상세 조회는 회사별 데이터 범위를 적용합니다.
+평가 회차 및 상세 조회는 회사별 데이터 범위를 적용합니다. 평가 대상이 0명인 회차도 목록에서 조회되도록 보완했습니다.
 조직별 인원 현황의 잘못된 `division_id`는 422로 거부합니다.
 
 API 명세서: https://www.notion.so/411675b40a3480558925f1a388e694ab
+
+## 신규 DB 마이그레이션 018 주의사항
+
+`018_company_scoped_evaluations.sql`은 평가 회차에 `company_id`를 추가하고 `(company_id, year, half)`를 유일하게 관리하여 다른 회사의 평가 회차를 구분합니다. DB 변경 전에는 **반드시 백업**하세요. 기존 평가 회차가 두 회사의 직원을 동시에 포함하거나 참여자가 없어 회사가 모호한 경우 마이그레이션 전에 중단하도록 구성했습니다. 이런 기존 데이터는 소유 회사와 평가 대상 데이터를 먼저 정리해야 합니다. MySQL DDL은 트랜잭션 롤백이 보장되지 않으므로 실패 후 같은 마이그레이션을 무작정 다시 실행하지 말고 DB 상태를 확인하세요.
 
 ## 운영 명령
 
