@@ -261,6 +261,11 @@ def headcounts():
     division = query_int("division_id")
     with transaction() as conn:
         departments = organization_rows(conn, "departments")
+        if division and not any(
+            department["department_id"] == division and department["is_active"]
+            for department in departments
+        ):
+            raise ApiError("VALIDATION_ERROR", details={"field": "division_id"})
         employees, summary = company_counts(conn)
     permitted = descendants(departments, division) if division else None
     day = today()

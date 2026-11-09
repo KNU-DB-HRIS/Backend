@@ -1,8 +1,6 @@
-from datetime import date
-
 from flask import Blueprint, request
 
-from app.db import all_rows, one, page_query, transaction
+from app.db import all_rows, one, page_query, today, transaction
 from app.errors import ApiError
 from app.modules.employees.services import EMPLOYEE_JOINS, employee_filter, employee_row
 from app.security import require_auth, scope_employee
@@ -54,12 +52,12 @@ def current_salary(employee_id):
 @require_auth()
 def history(employee_id):
     scope_employee(employee_id)
-    start = iso_date(request.args.get("from", date(1900, 1, 1).isoformat()), "from")
-    end = iso_date(request.args.get("to", date.max.isoformat()), "to")
-    if start > end:
-        raise ApiError("INVALID_RANGE")
     with transaction() as conn:
-        employee_row(conn, employee_id)
+        employee = employee_row(conn, employee_id)
+        start = iso_date(request.args.get("from", employee["hire_date"].isoformat()), "from")
+        end = iso_date(request.args.get("to", today().isoformat()), "to")
+        if start > end:
+            raise ApiError("INVALID_RANGE")
         rows = all_rows(
             conn,
             "SELECT salary_history_id,effective_date,previous_salary,new_salary,"

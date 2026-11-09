@@ -30,7 +30,12 @@ def period_dto(row):
 
 def evaluation_data(conn, period_id):
     period = one(
-        conn, "SELECT * FROM evaluation_periods WHERE evaluation_period_id=:id", {"id": period_id}
+        conn,
+        "SELECT p.* FROM evaluation_periods p WHERE p.evaluation_period_id=:id "
+        "AND EXISTS (SELECT 1 FROM employee_evaluations v "
+        "JOIN employees e ON e.employee_id=v.employee_id "
+        "WHERE v.evaluation_period_id=p.evaluation_period_id AND e.company_id=:company)",
+        {"id": period_id, "company": g.actor["company_id"]},
     )
     if not period:
         raise ApiError("PERIOD_NOT_FOUND", 404)
@@ -59,8 +64,8 @@ def periods():
         rows = all_rows(
             conn,
             "SELECT p.*,COUNT(e.employee_id) AS target_count FROM evaluation_periods p "
-            "LEFT JOIN employee_evaluations v ON v.evaluation_period_id=p.evaluation_period_id "
-            "LEFT JOIN employees e ON e.employee_id=v.employee_id AND e.company_id=:company "
+            "JOIN employee_evaluations v ON v.evaluation_period_id=p.evaluation_period_id "
+            "JOIN employees e ON e.employee_id=v.employee_id AND e.company_id=:company "
             "GROUP BY p.evaluation_period_id ORDER BY p.start_date DESC,p.evaluation_period_id DESC",
             {"company": g.actor["company_id"]},
         )
