@@ -74,24 +74,6 @@ cat ./seed-credentials.csv
 
 개발 DB에 이미 회사 또는 직원 데이터가 존재하면 샘플 등록을 거부합니다. 이미 정상 등록된 샘플 데이터에서 스크립트를 재실행하면 중복 생성하지 않습니다. 초기 데이터는 한 트랜잭션으로 등록하므로 오류 발생 시 해당 실행의 데이터 변경은 롤백됩니다. `APP_ENV=production` 환경에서는 샘플 데이터 등록을 차단합니다.
 
-## 노션 API 명세서 반영 범위
-
-2026-11-10 기준, Term Project의 API 명세서에는 총 59개 엔드포인트가 등록되어 있습니다.
-확정 상태(`상세 작성`)인 57개를 구현했고, 다음 2개는 노션에서 아직 `보류`로 지정되어 구현하지 않았습니다.
-
-- `POST /api/v1/employees/{employee_id}/salary-history` (`SAL-04`)
-- `POST /api/v1/evaluations/{evaluation_id}/stage-records` (`EVAL-04`)
-
-노션 명세와 일치하도록 급여 변경 이력의 기본 조회 기간을 직원 입사일~오늘로 조정했고,
-평가 회차 및 상세 조회는 회사별 데이터 범위를 적용합니다. 평가 대상이 0명인 회차도 목록에서 조회되도록 보완했습니다.
-조직별 인원 현황의 잘못된 `division_id`는 422로 거부합니다.
-
-API 명세서: https://www.notion.so/411675b40a3480558925f1a388e694ab
-
-## 신규 DB 마이그레이션 018 주의사항
-
-`018_company_scoped_evaluations.sql`은 평가 회차에 `company_id`를 추가하고 `(company_id, year, half)`를 유일하게 관리하여 다른 회사의 평가 회차를 구분합니다. DB 변경 전에는 **반드시 백업**하세요. 기존 평가 회차가 두 회사의 직원을 동시에 포함하거나 참여자가 없어 회사가 모호한 경우 마이그레이션 전에 중단하도록 구성했습니다. 이런 기존 데이터는 소유 회사와 평가 대상 데이터를 먼저 정리해야 합니다. MySQL DDL은 트랜잭션 롤백이 보장되지 않으므로 실패 후 같은 마이그레이션을 무작정 다시 실행하지 말고 DB 상태를 확인하세요.
-
 ## 운영 명령
 
 ```bash
@@ -126,7 +108,6 @@ curl -i -b cookies.txt "http://$DOMAIN/api/v1/auth/me"
 
 ## 운영 주의 사항
 
-- `requirements.txt`가 유일한 Python 패키지 목록입니다. 분리된 `base.txt`/`dev.txt`를 사용하지 않습니다.
 - `database/`의 기존 SQL은 수정하지 말고 새 번호로 마이그레이션 파일을 추가합니다. 적용 이력은 `schema_migrations`에서 관리합니다.
 - `.env`, `.seed-credentials.csv`는 Git에 올리지 않습니다. 운영 DB에서 시드 스크립트를 실행하지 않습니다.
 - MySQL 볼륨과 발급 문서 볼륨을 정기적으로 백업해야 합니다. `docker compose down -v`는 볼륨의 실제 데이터를 삭제하므로 주의하세요.
