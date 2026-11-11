@@ -1,0 +1,36 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: backend-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Deploy to Oracle Cloud
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.ORACLE_CLOUD_VM_PUBLIC_IP }}
+          username: ${{ secrets.ORACLE_CLOUD_VM_USERNAME }}
+          password: ${{ secrets.ORACLE_CLOUD_VM_SSH_PASSWORD }}
+          port: ${{ secrets.ORACLE_CLOUD_VM_SSH_PORT }}
+          command_timeout: 15m
+          script: |
+            set -e
+            cd /home/ubuntu/Backend
+            git fetch origin main
+            git reset --hard origin/main
+            test -f .env
+            docker compose config --quiet
+            docker compose build backend
+            docker compose up -d
+            ./setup/database.sh
+            docker compose ps

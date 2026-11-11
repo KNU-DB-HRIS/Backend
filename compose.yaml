@@ -1,24 +1,24 @@
-x-application: &application
+
+x-app: &app
   build: .
   environment:
     APP_ENV: ${APP_ENV:-development}
     DB_HOST: mysql
-    DB_PORT: "3306"
     DB_NAME: ${MYSQL_DATABASE:-hris}
     DB_USER: ${MYSQL_USER:-hris_app}
-    DB_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
+    DB_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
     STORAGE_DIR: /app/instance/files
     AI_BASE_URL: ${AI_BASE_URL:-}
     AI_DATABASE_URL: ${AI_DATABASE_URL:-}
+    CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
     WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
-    CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
     SESSION_IDLE_SECONDS: ${SESSION_IDLE_SECONDS:-7200}
 
 services:
   backend:
-    <<: *application
+    <<: *app
     ports:
-      - "127.0.0.1:${BACKEND_PORT:-8080}:5000"
+      - "${BACKEND_PORT:-8080}:5000"
     volumes:
       - file_data:/app/instance/files
     depends_on:
@@ -29,23 +29,16 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
     restart: unless-stopped
 
   migrate:
-    <<: *application
+    <<: *app
     command: ["flask", "--app", "wsgi:app", "db-upgrade", "--base-dir", "/database"]
     volumes:
-      - type: bind
-        source: ${DATABASE_SQL_DIR:-./database}
-        target: /database
-        read_only: true
-        bind:
-          create_host_path: false
+      - ./database:/database:ro
     depends_on:
       mysql:
         condition: service_healthy
-    restart: "no"
 
   mysql:
     image: ${MYSQL_IMAGE:-mysql:8.4}
@@ -53,17 +46,12 @@ services:
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-hris}
       MYSQL_USER: ${MYSQL_USER:-hris_app}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD in .env}
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD is required}
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test:
-        - CMD-SHELL
-        - >-
-          MYSQL_PWD="$$MYSQL_PASSWORD" mysql --protocol=TCP
-          -h 127.0.0.1 -u"$$MYSQL_USER" "$$MYSQL_DATABASE"
-          -e 'SELECT 1' >/dev/null 2>&1
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysql -h 127.0.0.1 -u\"$$MYSQL_USER\" \"$$MYSQL_DATABASE\" -e 'SELECT 1' >/dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 10
