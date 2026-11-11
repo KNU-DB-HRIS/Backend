@@ -32,6 +32,12 @@ Backend/
 Docker Desktop(Compose v2), Python 3, Bash가 필요합니다. Windows에서는 Git Bash를 권장합니다.
 
 ```bash
+cd Backend
+
+chmod +x ./setup/setup.sh
+chmod +x ./setup/database.sh
+chmod +x ./setup/database-data.sh
+
 bash ./setup/setup.sh
 bash ./setup/database-data.sh
 ```
