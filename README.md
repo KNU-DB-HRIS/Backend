@@ -16,8 +16,8 @@ Backend/
 │   └── ...
 ├── database/                # 번호 순서대로 적용되는 SQL 마이그레이션
 ├── config/                  # Gunicorn 설정
-├── requirements.txt        # 통합 Python 의존성
-├── compose.yaml            # MySQL, 마이그레이션, API 서비스
+├── requirements.txt         # 통합 Python 의존성
+├── compose.yaml             # MySQL, 마이그레이션, API 서비스
 ├── Dockerfile
 ├── .env.example
 ├── setup/
