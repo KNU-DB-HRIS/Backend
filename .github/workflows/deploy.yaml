@@ -29,6 +29,7 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
             test -f .env
+            chmod +x ./setup/*
             docker compose config --quiet
             docker compose build backend
             docker compose up -d
