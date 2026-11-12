@@ -246,10 +246,54 @@ def test_flask_policy_allows_declared_date_functions(sql):  # 수정 전엔 TS_O
 
 
 @pytest.mark.parametrize("sql", ["SELECT NOW() AS n FROM employees", "SELECT AVG(current_salary) AS a FROM employees",
-                                 "SELECT employee_name FROM employees WHERE hire_date >= DATE_SUB(CURRENT_DATE, INTERVAL 1 DAY)"])
+                                 "SELECT employee_name FROM employees WHERE hire_date >= DATE_SUB(CURRENT_DATE, INTERVAL 1 DAY)",
+                                 "SELECT employee_name FROM employees WHERE employment_status = 'ACTIVE' AND SLEEP(5) = 0",
+                                 "SELECT d.department_name FROM departments d WHERE EXISTS (SELECT current_salary FROM employees e)"])
 def test_flask_policy_still_rejects(sql):
     with pytest.raises(ValueError):
         _flask().validate_sql(sql, 1)
+
+
+LOGIC_SQL = [  # 수정 전엔 AND·OR·XOR·EXISTS가 '함수'로 분류돼 전부 거부됨 (실제 DeepSeek 호출에서 발견)
+    "SELECT employee_name FROM employees WHERE employment_status = 'ACTIVE' AND YEAR(hire_date) = YEAR(CURRENT_DATE)",
+    "SELECT employee_name FROM employees WHERE employment_status = 'ON_LEAVE' OR termination_date IS NOT NULL",
+    "SELECT employee_name FROM employees WHERE job_id = 1 XOR job_id = 2",
+    "SELECT d.department_name FROM departments d WHERE EXISTS (SELECT e.employee_id FROM employees e WHERE e.department_id = d.department_id)",
+]
+
+
+@pytest.mark.parametrize("sql", LOGIC_SQL)
+def test_flask_policy_allows_logical_operators(sql):
+    out = _flask().validate_sql(sql, 1)
+    assert "company_id=1" in out.replace(" ", "")
+
+
+@pytest.mark.parametrize("sql", LOGIC_SQL)
+def test_precheck_allows_logical_operators(sql):
+    assert precheck(sql, SCHEMA, DEFAULT_FUNCTIONS) == []
+
+
+@pytest.mark.parametrize("sql,limit", [  # 전에는 무조건 LIMIT 200으로 덮어써서 '상위 N'·'가장 ~' 질문이 전체를 돌려줌
+    ("SELECT employee_name FROM employees ORDER BY hire_date DESC LIMIT 1", 1),
+    ("SELECT employee_name FROM employees ORDER BY hire_date DESC LIMIT 5", 5),
+    ("SELECT employee_name FROM employees LIMIT 1000", 200),
+    ("SELECT employee_name FROM employees LIMIT 1 + 1", 200),
+    ("SELECT employee_name FROM employees", 200),
+])
+def test_flask_policy_limit(sql, limit):
+    import sqlglot
+    pol = _flask()
+    assert pol.requested_limit(sqlglot.parse_one(pol.validate_sql(sql, 1), read="mysql")) == limit
+
+
+def test_executor_probe_limit_and_percent_escape():
+    _flask()
+    from app.modules.ai.executor import with_probe_limit
+    assert with_probe_limit("SELECT a FROM t LIMIT 5").endswith("LIMIT 5")      # 상위 N 유지
+    assert with_probe_limit("SELECT a FROM t LIMIT 200").endswith("LIMIT 201")  # 기본 상한 → 잘림 확인용 201
+    assert with_probe_limit("SELECT a FROM t").endswith("LIMIT 201")
+    out = with_probe_limit("SELECT a AS `비율(%)` FROM t WHERE a LIKE '김%'")
+    assert "LIKE '김%%'" in out and "`비율(%%)`" in out and out % () == out.replace("%%", "%")  # pymysql 치환 뒤 원래 SQL
 
 
 def test_flask_and_precheck_agree_on_schema():

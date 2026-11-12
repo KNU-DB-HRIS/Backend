@@ -10,6 +10,7 @@ import sqlglot
 from sqlglot import exp
 
 IMPLICIT_FUNCTIONS = {"TS_OR_DS_TO_DATE"}  # sqlglot가 YEAR/MONTH/DAY/DATE 인자에 끼우는 내부 노드
+OPERATOR_NODES = (exp.Connector, exp.Exists)  # AND·OR·XOR·EXISTS도 sqlglot에선 Func → 함수 검사 제외 (Flask와 같은 규칙)
 STATUSES = {"OK", "NEEDS_CLARIFICATION", "OUT_OF_SCOPE"}
 _FENCE = re.compile(r"```(?:json|sql)?\s*(.*?)```", re.S | re.I)
 
@@ -74,7 +75,8 @@ def precheck(sql: str, schema: dict[str, list[str]], functions: list[str]) -> li
     if any(isinstance(n, (exp.Into, exp.Lock, exp.Parameter, exp.SessionParameter, exp.Command)) for n in tree.walk()):
         problems.append("허용되지 않은 구문")
     allowed_funcs = set(functions) | IMPLICIT_FUNCTIONS
-    bad = sorted({n.sql_name() for n in tree.walk() if isinstance(n, exp.Func) and n.sql_name() not in allowed_funcs})
+    bad = sorted({n.sql_name() for n in tree.walk()
+                  if isinstance(n, exp.Func) and not isinstance(n, OPERATOR_NODES) and n.sql_name() not in allowed_funcs})
     if bad:
         problems.append("허용되지 않은 함수: " + ", ".join("NOW 같은 사용자 함수" if b == "ANONYMOUS" else b for b in bad))
     tables = list(tree.find_all(exp.Table))

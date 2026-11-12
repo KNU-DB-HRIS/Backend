@@ -86,6 +86,21 @@ SAFE_FUNCTIONS = {
 # sqlglot(MySQL)가 YEAR/MONTH/DAY/DATE(x) 를 읽을 때 인자를 TS_OR_DS_TO_DATE(x)로 감싸서 넣는 내부 노드.
 # 사용자가 쓴 함수가 아니라 파서가 끼운 날짜 변환이라 허용 (없으면 위의 YEAR·MONTH·DAY·DATE가 전부 거부됨)
 IMPLICIT_FUNCTIONS = {"TS_OR_DS_TO_DATE"}
+# sqlglot는 논리 연산자 AND·OR·XOR와 EXISTS도 Func 하위 클래스로 만든다 → 함수 검사에서 제외
+# (없으면 WHERE 조건이 둘 이상인 SQL이 전부 거부됨. EXISTS 안 서브쿼리의 테이블·열 검사는 그대로 적용)
+OPERATOR_NODES = (exp.Connector, exp.Exists)
+
+
+MAX_LIMIT = 200
+
+
+def requested_limit(tree):
+    """SQL에 적힌 LIMIT n (정수 리터럴일 때만). 없거나 식이면 None"""
+    node = tree.args.get("limit")
+    value = node.args.get("expression") if node is not None else None
+    if isinstance(value, exp.Literal) and not value.is_string and value.this.isdigit():
+        return int(value.this)
+    return None
 
 
 def validate_sql(sql, company_id):
@@ -105,7 +120,9 @@ def validate_sql(sql, company_id):
     ):
         raise ValueError("SQL operation is not allowed")
     if any(
-        isinstance(n, exp.Func) and n.sql_name() not in SAFE_FUNCTIONS | IMPLICIT_FUNCTIONS
+        isinstance(n, exp.Func)
+        and not isinstance(n, OPERATOR_NODES)
+        and n.sql_name() not in SAFE_FUNCTIONS | IMPLICIT_FUNCTIONS
         for n in tree.walk()
     ):
         raise ValueError("Function is not allowed")
@@ -130,7 +147,11 @@ def validate_sql(sql, company_id):
             f"SELECT {selected} FROM {table.name} WHERE company_id={int(company_id)}", read="mysql"
         )
         table.replace(scoped.subquery(alias=alias))
-    tree.set("limit", exp.Limit(expression=exp.Literal.number(200)))
+    # '상위 5명'처럼 질문이 정한 LIMIT(1~200)은 유지, 없거나 크거나 식이면 200으로 고정
+    # (전에는 무조건 200으로 덮어써서 '가장 최근 1명' 같은 질문이 전체 목록을 돌려줌)
+    wanted = requested_limit(tree)
+    limit = wanted if wanted is not None and 1 <= wanted <= MAX_LIMIT else MAX_LIMIT
+    tree.set("limit", exp.Limit(expression=exp.Literal.number(limit)))
     if tree.args.get("offset"):
         raise ValueError("OFFSET is not allowed")
     return tree.sql(dialect="mysql")

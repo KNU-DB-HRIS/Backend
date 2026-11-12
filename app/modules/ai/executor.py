@@ -7,7 +7,20 @@ import sqlglot
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 
+from app.modules.ai.sql_policy import requested_limit
+
 MAX_ROWS = 200
+
+
+def with_probe_limit(sql):
+    """잘림 여부를 알려고 LIMIT 201로 실행. 단, 질문이 정한 더 작은 LIMIT(상위 N)은 그대로 둠"""
+    tree = sqlglot.parse_one(sql, read="mysql")
+    wanted = requested_limit(tree)
+    if wanted is None or wanted >= MAX_ROWS:
+        tree = tree.limit(MAX_ROWS + 1)
+    # pymysql은 인자가 비어 있어도 SQL 문자열에 % 치환을 적용한다 → LIKE '김%'·별칭 `비율(%)`이
+    # ValueError로 죽음(SQLAlchemyError가 아니라 500). 리터럴 %를 %%로 이스케이프
+    return tree.sql(dialect="mysql").replace("%", "%%")
 
 
 class ExecutorConfigError(Exception):
@@ -32,8 +45,7 @@ def run_readonly(sql, database_url, forbidden_usernames=()):
             conn.exec_driver_sql("SET time_zone = '+09:00'")  # 메인 엔진과 같게: CURRENT_DATE를 KST 기준으로
             conn.exec_driver_sql("SET SESSION MAX_EXECUTION_TIME=5000")
             conn.exec_driver_sql("SET SESSION TRANSACTION READ ONLY")
-            query_tree = sqlglot.parse_one(sql, read="mysql").limit(MAX_ROWS + 1)
-            queried = conn.exec_driver_sql(query_tree.sql(dialect="mysql"))
+            queried = conn.exec_driver_sql(with_probe_limit(sql))
             columns = list(queried.keys())
             rows = [list(row) for row in queried.fetchmany(MAX_ROWS + 1)]
         return columns, rows[:MAX_ROWS], len(rows) > MAX_ROWS
