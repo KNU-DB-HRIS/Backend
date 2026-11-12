@@ -22,11 +22,15 @@ jobs:
     steps:
       - name: Deploy to Oracle Cloud
         uses: appleboy/ssh-action@v1
+        env:
+          # HR AI LLM 키: 저장소 Settings → Secrets and variables → Actions의 LLM_API_KEY (없으면 서버 .env의 LLM 설정을 건드리지 않음)
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
         with:
           host: ${{ secrets.ORACLE_CLOUD_VM_PUBLIC_IP }}
           username: ${{ secrets.ORACLE_CLOUD_VM_USERNAME }}
           password: ${{ secrets.ORACLE_CLOUD_VM_SSH_PASSWORD }}
           port: ${{ secrets.ORACLE_CLOUD_VM_SSH_PORT }}
+          envs: LLM_API_KEY
           command_timeout: 15m
           script: |
             set -e
@@ -35,10 +39,15 @@ jobs:
             git reset --hard origin/main
             test -f .env
             chmod +x ./setup/*
+            # HR AI: secret의 키를 서버 .env에 반영 (DeepSeek 기본값, 키 값은 출력 안 함). 읽기 전용 계정 URL이 없으면 같이 생성
+            if [ -n "${LLM_API_KEY:-}" ]; then ./setup/llm-env.sh || echo "HR AI: LLM settings NOT applied (check secret LLM_API_KEY), deploy continues"; else echo "HR AI: LLM_API_KEY secret not set, LLM settings unchanged"; fi
             docker compose config --quiet
             docker compose build backend ai
             docker compose up -d
             ./setup/database.sh
             # HR AI 읽기 전용 계정: 서버 .env에 AI_DATABASE_URL이 있을 때만 (없으면 AI만 비활성, 배포는 계속)
             if grep -Eq '^AI_DATABASE_URL=mysql' .env; then ./setup/ai.sh; else echo "HR AI: AI_DATABASE_URL not set, skipped"; fi
+            # HR AI 상태 확인만 (실패해도 배포는 성공 처리)
+            ai_port="$(sed -n 's/^AI_PORT=//p' .env | tail -1)"
+            echo "HR AI health: $(curl -fsS --max-time 5 "http://127.0.0.1:${ai_port:-8001}/health" 2>&1 || true)"
             docker compose ps
