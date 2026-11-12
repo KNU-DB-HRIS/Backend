@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "app/**"
+      - "ai/**"
       - "setup/*"
       - "wsgi.py"
   workflow_dispatch:
@@ -35,7 +36,9 @@ jobs:
             test -f .env
             chmod +x ./setup/*
             docker compose config --quiet
-            docker compose build backend
+            docker compose build backend ai
             docker compose up -d
             ./setup/database.sh
+            # HR AI 읽기 전용 계정: 서버 .env에 AI_DATABASE_URL이 있을 때만 (없으면 AI만 비활성, 배포는 계속)
+            if grep -Eq '^AI_DATABASE_URL=mysql' .env; then ./setup/ai.sh; else echo "HR AI: AI_DATABASE_URL not set, skipped"; fi
             docker compose ps

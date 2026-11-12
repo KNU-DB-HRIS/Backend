@@ -15,6 +15,7 @@ Backend/
 │   ├── security.py          # 인증, 권한, CSRF
 │   └── ...
 ├── database/                # 번호 순서대로 적용되는 SQL 마이그레이션
+├── ai/                      # HR AI(NL2SQL) FastAPI 서비스 · 평가 도구(ai/eval)
 ├── config/                  # Gunicorn 설정
 ├── requirements.txt         # 통합 Python 의존성
 ├── compose.yaml             # MySQL, 마이그레이션, API 서비스
@@ -111,10 +112,56 @@ curl -i -b cookies.txt "http://$DOMAIN/api/v1/auth/me"
 
 로그인 응답의 `csrf_token`을 확인한 다음, `POST`, `PATCH`, `DELETE` 요청에 `X-CSRF-Token` 헤더로 전달합니다. 프론트엔드에서는 `credentials: 'include'`를 설정해야 하며, `.env`의 `CORS_ORIGINS`에는 해당 프론트엔드 Origin을 등록해야 합니다.
 
+## HR AI (NL2SQL)
+
+브라우저는 Flask의 `POST /api/v1/ai/queries`만 호출합니다(HR_ADMIN 전용). Flask가 `ai` 서비스(FastAPI, `ai/`)에 질문과 허용 스키마를 보내 SQL을 받고, `app/modules/ai/sql_policy.py`로 검증·회사 범위 주입을 한 뒤 **읽기 전용 계정 `hris_ai`**로 실행합니다. AI 서비스는 DB에 접속하지 않고, LLM API 키는 `ai` 컨테이너에만 들어갑니다.
+
+```text
+브라우저 → Flask /api/v1/ai/queries → ai:8000 /queries (LLM 호출, SQL 생성·사전 점검)
+        ← 결과 표·답변·실행 SQL ← Flask: sql_policy 검증 → hris_ai 계정으로 SELECT 실행
+```
+
+### 설정
+
+1. `.env`에 LLM을 설정합니다. OpenAI 호환 `/chat/completions`면 어느 제공자든 됩니다. 키는 Git에 올리지 마세요.
+
+   ```dotenv
+   LLM_BASE_URL=https://api.deepseek.com
+   LLM_MODEL=deepseek-flash
+   LLM_API_KEY=발급받은_키
+   LLM_JSON_MODE=1
+   LLM_EXTRA_BODY='{"thinking":{"type":"disabled"}}'
+   ```
+
+   DeepSeek는 생각 모드가 기본으로 켜져 있어 응답이 느리고(Flask 20초 제한) temperature가 무시되므로 `LLM_EXTRA_BODY`로 끕니다. 다른 제공자 예시는 `.env.example`에 있습니다.
+
+2. `bash ./setup/setup.sh`를 실행합니다. `AI_DATABASE_URL`이 비어 있으면 읽기 전용 계정 비밀번호를 만들어 채우고, 마지막에 `setup/ai.sh`가 계정 생성·권한 부여·AI 서비스 기동을 합니다. 이미 설치된 환경에서는 `bash ./setup/ai.sh`만 실행해도 됩니다(여러 번 실행해도 안전).
+3. 상태 확인: `http://localhost:8001/health`의 `llm_configured`가 `true`인지 확인합니다.
+
+`hris_ai` 계정은 `SAFE_TABLES`에 적힌 열에만 열 단위 `SELECT` 권한을 받습니다. 검증기를 우회하는 SQL이 와도 급여·연락처·계정 정보는 DB 권한 단계에서 거부됩니다. `SAFE_TABLES`를 바꾸면 `bash ./setup/ai.sh`를 다시 실행해 권한을 맞추세요.
+
+### 평가 (과제 NL2SQL 확장)
+
+```bash
+bash ./setup/database-data.sh           # 샘플 데이터 필요
+bash ./setup/ai-eval.sh --repeat 3      # L1~L3 질문 × simple·enhanced 프롬프트 × 3회
+```
+
+- 질문·정답 SQL: `ai/eval/questions.json` (L1 단순 조건, L2 JOIN·집계·서브쿼리, L3 업무 용어·모호성)
+- simple = 테이블·열 이름만, enhanced = PK·FK·관계·열 의미·코드값·업무 용어·집계 기준·예시 추가
+- 생성 SQL과 정답 SQL을 같은 검증기·읽기 전용 계정으로 실행해 결과 집합을 비교하고, `ai/eval/out/report.md`에 수준별 정답률·오류 유형·오답 SQL을 기록합니다.
+- 업무 용어 정의(장기근속 3년, 신입 1년 미만 등)는 `ai/nl2sql/prompts.py`의 `GLOSSARY`에 있으며 팀 합의 전 제안값입니다.
+
+### 테스트
+
+```bash
+cd ai && python -m pytest -q    # fastapi·httpx·pytest·sqlglot 필요, Flask 쪽 계약 테스트는 requirements.txt 설치 시 함께 실행
+```
+
 ## 운영 주의 사항
 
 - `database/`의 기존 SQL은 수정하지 말고 새 번호로 마이그레이션 파일을 추가합니다. 적용 이력은 `schema_migrations`에서 관리합니다.
 - `.env`, `.seed-credentials.csv`는 Git에 올리지 않습니다. 운영 DB에서 시드 스크립트를 실행하지 않습니다.
 - MySQL 볼륨과 발급 문서 볼륨을 정기적으로 백업해야 합니다. `docker compose down -v`는 볼륨의 실제 데이터를 삭제하므로 주의하세요.
 - 기본 API 포트는 로컬 인터페이스에만 바인딩합니다. 배포 시 HTTPS 리버스 프록시, 비밀정보 관리 및 실제 도메인에 맞춘 CORS 설정이 필요합니다.
-- HR AI 기능은 별도 AI 서버가 있어야 작동합니다. 노션에서 보류한 `SAL-04`, `EVAL-04` API는 구현되지 않았습니다.
+- HR AI 기능은 `.env`에 LLM 설정이 있어야 작동합니다(위 "HR AI" 참고). LLM 설정이 없어도 다른 API는 정상 동작하며 AI 요청만 오류를 돌려줍니다. 노션에서 보류한 `SAL-04`, `EVAL-04` API는 구현되지 않았습니다.
