@@ -17,6 +17,7 @@ import sys
 import time
 from collections import Counter, defaultdict
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 HERE = Path(__file__).resolve().parent
 sys.path[:0] = ["/app", str(HERE)]
@@ -58,6 +59,8 @@ def execute(sql, cid, ai_db, forbidden):
         return None, None, rows
     except (ExecutorConfigError, SQLAlchemyError) as e:
         return None, type(e).__name__ + ": " + str(e).splitlines()[0][:200], None
+    except Exception as e:  # noqa: BLE001 — 예상 못 한 실행 오류도 기록하고 다음 질문으로 (평가 전체가 멈추지 않게)
+        return None, "UNEXPECTED " + type(e).__name__ + ": " + str(e).splitlines()[0][:200], None
 
 
 def ask(ai_url, question, mode):
@@ -101,7 +104,7 @@ def main():
                 sys.exit(f"정답 SQL 실패 {q['id']}: {rej or err}")
             gold[q["id"]] = rows
 
-    results, started = [], dt.datetime.now().astimezone()
+    results, started = [], dt.datetime.now(ZoneInfo("Asia/Seoul"))
     for rep in range(1, a.repeat + 1):
         for q in qs:
             for mode in modes:
@@ -134,7 +137,7 @@ def report(meta, qs, results, modes):
     for r in results:
         by[(r["level"], r["mode"])].append(r["verdict"] == "CORRECT")
     pct = lambda xs: f"{sum(xs)}/{len(xs)} ({100 * sum(xs) / len(xs):.0f}%)" if xs else "-"  # noqa: E731
-    L = [f"# NL2SQL 평가 결과 ({meta['started'][:16].replace('T', ' ')})", "",
+    L = [f"# NL2SQL 평가 결과 ({meta['started'][:16].replace('T', ' ')} KST)", "",
          f"- 모델 `{meta['model']}` · 질문 {meta['questions']}개 × 방식 {len(modes)} × 반복 {meta['repeat']}",
          "- 판정: 생성 SQL과 정답 SQL을 같은 서버 검증기·읽기 전용 계정으로 실행해 결과 집합 비교",
          "- simple = 테이블·열 이름만 / enhanced = + PK·FK·관계·열 의미·코드값·업무 용어·집계 기준·예시", "",
@@ -174,6 +177,7 @@ def report(meta, qs, results, modes):
     L += ["", "## 한계", "",
           "- 샘플 데이터(직원 10명)가 작아 틀린 SQL이 우연히 같은 결과를 낼 수 있음",
           "- L3 정답은 prompts.py GLOSSARY의 업무 규칙(팀 합의 전 제안값) 기준. 규칙이 바뀌면 정답 SQL도 같이 수정",
+          "- enhanced 프롬프트가 L3 규칙을 직접 알려주므로 L3 enhanced 점수는 '규칙을 알려주면 지키는가'를 잰 것. 처음 보는 용어에 대한 일반화 성능이 아님",
           "- temperature 0이어도 모델 응답은 바뀔 수 있음 → --repeat로 흔들림 확인"]
     return "\n".join(L) + "\n"
 

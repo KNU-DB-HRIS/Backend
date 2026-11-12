@@ -15,7 +15,7 @@ COMMON_RULES = """너는 HR 시스템의 MySQL 8 SQL 생성기다. 사용자의 
 - 아래 스키마의 테이블·열만 사용. SELECT * 금지(COUNT(*)만 허용). 열 이름을 직접 적을 것
 - 사용 가능한 함수: {functions}. 그 밖의 함수(NOW, DATE_SUB, DATE_FORMAT, GROUP_CONCAT, 윈도 함수 등) 금지. 오늘 날짜는 CURRENT_DATE
 - company_id 조건은 쓰지 말 것(서버가 회사 범위를 자동으로 건다)
-- LIMIT·OFFSET 쓰지 말 것(서버가 최대 200행으로 자른다). 순서가 의미 있으면 ORDER BY
+- LIMIT은 '상위 5명'처럼 질문이 개수를 정할 때만(최대 200). 그 외엔 쓰지 말 것(서버가 최대 200행으로 자른다). OFFSET 금지. 순서가 의미 있으면 ORDER BY
 - 결과 열 별칭은 백틱으로 감싼 한국어 (예: AS `재직 인원`)
 
 [출력 형식] JSON 객체 하나만, 다른 글 없이
@@ -84,6 +84,7 @@ GLOSSARY = """[업무 용어와 집계 기준]
 - 직급(사원·대리·과장·차장·부장)은 positions, 직책(팀장·팀원)은 job_titles. 섞지 말 것
 - '대리 이상' 같은 직급 범위는 position_level 비교
 - 부서별 집계: 부서명으로 묶고 사용 중(is_active = 1) 부서만
+- '가장 ~한 사람'(최댓값·최솟값): 동점자도 나오게 = (SELECT MAX(...) ...) 서브쿼리. '상위 N명': ORDER BY + LIMIT N
 - 급여·연봉·연락처·주소·생년월일·평가·근태는 AI 조회 범위 밖 → OUT_OF_SCOPE
 - 앞 대화 없이 '그 사람', '거기'처럼 가리키는 대상이 없으면 NEEDS_CLARIFICATION"""
 
