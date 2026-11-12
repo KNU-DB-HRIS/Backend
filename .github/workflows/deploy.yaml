@@ -40,7 +40,7 @@ jobs:
             test -f .env
             chmod +x ./setup/*
             # HR AI: secret의 키를 서버 .env에 반영 (DeepSeek 기본값, 키 값은 출력 안 함). 읽기 전용 계정 URL이 없으면 같이 생성
-            if [ -n "${LLM_API_KEY:-}" ]; then ./setup/llm-env.sh; else echo "HR AI: LLM_API_KEY secret not set, LLM settings unchanged"; fi
+            if [ -n "${LLM_API_KEY:-}" ]; then ./setup/llm-env.sh || echo "HR AI: LLM settings NOT applied (check secret LLM_API_KEY), deploy continues"; else echo "HR AI: LLM_API_KEY secret not set, LLM settings unchanged"; fi
             docker compose config --quiet
             docker compose build backend ai
             docker compose up -d
