@@ -19,7 +19,7 @@ docker compose up -d --wait --wait-timeout 180 mysql
 # 권한 SQL은 Flask가 sql_policy.SAFE_TABLES로 만들고(열 단위 SELECT만), root로 적용
 docker compose run --rm --no-deps -T backend flask --app wsgi:app ai-reader-sql \
     | docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysql -uroot'
-docker compose up -d --build --wait --wait-timeout 180 ai backend
+docker compose up -d --build --wait --wait-timeout 300 ai backend
 
 port="$(sed -n 's/^AI_PORT=//p' .env | tail -1)"
 printf 'HR AI ready. Read-only account applied.\n'

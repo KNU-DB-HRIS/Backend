@@ -29,6 +29,8 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+      # 배포 직후 빌드·마이그레이션이 겹치면(1GB 서버, 스왑 사용) 첫 응답이 2분 넘게 걸림. 그동안의 실패는 unhealthy로 세지 않음
+      start_period: 180s
     restart: unless-stopped
 
   migrate:
