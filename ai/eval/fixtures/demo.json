@@ -1,0 +1,10 @@
+{
+ "_about": "키 없이 배선(Flask↔FastAPI↔DB)만 시험하는 고정 응답. LLM_FIXTURE_FILE=/app/fixtures/demo.json 일 때만 쓰임. 응답의 model은 'fixture'로 표시됨. 평가 결과로 쓰지 말 것",
+ "부서별 재직 인원 알려줘": {"status": "OK", "sql": "SELECT d.department_name AS `부서`, COUNT(*) AS `재직 인원` FROM employees e JOIN departments d ON d.department_id = e.department_id WHERE e.employment_status = 'ACTIVE' AND d.is_active = 1 GROUP BY d.department_name ORDER BY `재직 인원` DESC", "answer": "(fixture) 사용 중인 부서별 재직(ACTIVE) 인원을 셌습니다."},
+ "현재 재직 인원은 몇 명이야?": {"status": "OK", "sql": "SELECT COUNT(*) AS `재직 인원` FROM employees WHERE employment_status = 'ACTIVE'", "answer": "(fixture) 재직(ACTIVE) 직원 수입니다."},
+ "부서별 직원 수를 비교해줘": {"status": "OK", "sql": "SELECT department_name AS `부서`, active_headcount AS `재직 인원` FROM vw_nl_org_headcounts ORDER BY active_headcount DESC", "answer": "(fixture) 부서별 재직 인원 집계 뷰를 조회했습니다."},
+ "올해 입사한 직원은 몇 명이야?": {"status": "OK", "sql": "SELECT COUNT(*) AS `올해 입사 재직자` FROM employees WHERE employment_status = 'ACTIVE' AND YEAR(hire_date) = YEAR(CURRENT_DATE)", "answer": "(fixture) 올해 입사한 재직자 수입니다."},
+ "직원들 평균 연봉은 얼마야?": {"status": "OUT_OF_SCOPE", "sql": null, "answer": "(fixture) 급여는 HR AI 조회 범위가 아닙니다. 급여관리 화면에서 확인해 주세요."},
+ "그 사람 부서가 어디야?": {"status": "NEEDS_CLARIFICATION", "sql": null, "answer": "(fixture) 어떤 직원을 말씀하시는지 이름이나 사번을 알려 주세요."},
+ "[시험] 정책 위반 SQL": {"status": "OK", "sql": "SELECT employee_name, current_salary FROM employees", "answer": "(fixture) 서버 거부 경로 시험용"}
+}

@@ -164,3 +164,44 @@ def register_commands(app):
     app.cli.add_command(db_upgrade)
     app.cli.add_command(create_user)
     app.cli.add_command(db_seed_demo)
+    app.cli.add_command(ai_reader_sql)
+
+
+@click.command("ai-reader-sql")
+@with_appcontext
+def ai_reader_sql():
+    """NL2SQL 전용 읽기 계정 SQL을 출력 (root로 실행: setup/ai.sh 가 mysql 컨테이너에 파이프)
+
+    계정·비밀번호는 AI_DATABASE_URL에서 읽고, 권한은 sql_policy.SAFE_TABLES의 열에만 SELECT를 준다.
+    검증기를 우회하는 SQL이 와도 급여·연락처 같은 열은 DB 권한 단계에서 막힌다.
+    """
+    import re
+
+    from sqlalchemy.engine import make_url
+
+    from app.modules.ai.sql_policy import SAFE_TABLES
+
+    url = make_url(current_app.config["AI_DATABASE_URL"] or "")
+    app_user = current_app.extensions["db"].url.username
+    database = current_app.extensions["db"].url.database
+    ident = re.compile(r"^[A-Za-z0-9_]{1,32}$")
+    if url.drivername != "mysql+pymysql" or not url.username or url.username in {"root", app_user}:
+        raise click.ClickException("AI_DATABASE_URL must name a dedicated mysql+pymysql account")
+    if not ident.match(url.username) or not ident.match(database or ""):
+        raise click.ClickException("Unexpected characters in AI account or database name")
+    if not url.password or not re.fullmatch(r"[A-Za-z0-9_\-]{16,128}", url.password):
+        raise click.ClickException("AI account password must be 16-128 URL-safe characters")
+    if url.database != database:
+        raise click.ClickException("AI_DATABASE_URL must point at the application database")
+    account = f"'{url.username}'@'%'"
+    lines = [
+        f"CREATE USER IF NOT EXISTS {account} IDENTIFIED BY '{url.password}';",
+        f"ALTER USER {account} IDENTIFIED BY '{url.password}' WITH MAX_USER_CONNECTIONS 5;",
+        f"REVOKE ALL PRIVILEGES, GRANT OPTION FROM {account};",
+    ]
+    for table, columns in SAFE_TABLES.items():
+        if not ident.match(table) or not all(ident.match(c) for c in columns):
+            raise click.ClickException(f"Unexpected identifier in SAFE_TABLES: {table}")
+        cols = ", ".join(f"`{c}`" for c in columns)
+        lines.append(f"GRANT SELECT ({cols}) ON `{database}`.`{table}` TO {account};")
+    click.echo("\n".join(lines))

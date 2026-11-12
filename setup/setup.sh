@@ -30,6 +30,15 @@ for key in ('MYSQL_PASSWORD', 'MYSQL_ROOT_PASSWORD'):
         lines[matches[-1]] = entry
     else:
         lines.append(entry)
+# HR AI 읽기 전용 계정(hris_ai): 비어 있으면 비밀번호를 만들어 URL로 저장. 계정·권한 생성은 setup/ai.sh
+ai = [i for i, line in enumerate(lines) if re.match(r'^\s*AI_DATABASE_URL\s*=', line)]
+if not ai or not lines[ai[-1]].split('=', 1)[1].strip().strip('"\''):
+    db = next((l.split('=', 1)[1].strip() for l in reversed(lines) if re.match(r'^\s*MYSQL_DATABASE\s*=', l)), '') or 'hris'
+    entry = f'AI_DATABASE_URL=mysql+pymysql://hris_ai:{secrets.token_urlsafe(24)}@mysql:3306/{db}?charset=utf8mb4'
+    if ai:
+        lines[ai[-1]] = entry
+    else:
+        lines.append(entry)
 if not path.exists() or source != '\n'.join(lines) + '\n':
     path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
     if os.name != 'nt':
@@ -41,5 +50,6 @@ export DATABASE_SQL_DIR=./database
 docker compose config --quiet
 docker compose build
 bash ./setup/database.sh
+bash ./setup/ai.sh
 printf '\nSample data (optional): bash ./setup/database-data.sh\nAPI: http://localhost:%s/api/v1\n' "$(sed -n 's/^BACKEND_PORT=//p' .env | tail -1)"
 printf 'Health: http://localhost:%s/health/ready\n' "$(sed -n 's/^BACKEND_PORT=//p' .env | tail -1)"
