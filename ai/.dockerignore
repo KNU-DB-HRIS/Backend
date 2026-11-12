@@ -1,0 +1,7 @@
+tests
+eval/out
+eval/run_eval.py
+eval/scoring.py
+eval/questions.json
+**/__pycache__
+.pytest_cache

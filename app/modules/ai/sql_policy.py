@@ -83,6 +83,9 @@ SAFE_FUNCTIONS = {
     "CURRENT_DATE",
     "EXTRACT",
 }
+# sqlglot(MySQL)가 YEAR/MONTH/DAY/DATE(x) 를 읽을 때 인자를 TS_OR_DS_TO_DATE(x)로 감싸서 넣는 내부 노드.
+# 사용자가 쓴 함수가 아니라 파서가 끼운 날짜 변환이라 허용 (없으면 위의 YEAR·MONTH·DAY·DATE가 전부 거부됨)
+IMPLICIT_FUNCTIONS = {"TS_OR_DS_TO_DATE"}
 
 
 def validate_sql(sql, company_id):
@@ -101,7 +104,10 @@ def validate_sql(sql, company_id):
         for n in tree.walk()
     ):
         raise ValueError("SQL operation is not allowed")
-    if any(isinstance(n, exp.Func) and n.sql_name() not in SAFE_FUNCTIONS for n in tree.walk()):
+    if any(
+        isinstance(n, exp.Func) and n.sql_name() not in SAFE_FUNCTIONS | IMPLICIT_FUNCTIONS
+        for n in tree.walk()
+    ):
         raise ValueError("Function is not allowed")
     tables = list(tree.find_all(exp.Table))
     if not tables or len(tables) > 8:

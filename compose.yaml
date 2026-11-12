@@ -8,7 +8,7 @@ x-app: &app
     DB_USER: ${MYSQL_USER:-hris_app}
     DB_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD is required}
     STORAGE_DIR: /app/instance/files
-    AI_BASE_URL: ${AI_BASE_URL:-}
+    AI_BASE_URL: ${AI_BASE_URL:-http://ai:8000}
     AI_DATABASE_URL: ${AI_DATABASE_URL:-}
     CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
     WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
@@ -39,6 +39,30 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+
+  ai:
+    # NL2SQL(FastAPI): 질문 → SQL 생성만. DB 접속 없음, LLM 키는 이 컨테이너에만 들어감
+    build: ./ai
+    environment:
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-12}
+      LLM_JSON_MODE: ${LLM_JSON_MODE:-0}
+      LLM_EXTRA_BODY: ${LLM_EXTRA_BODY:-}
+      NL2SQL_PROMPT_MODE: ${NL2SQL_PROMPT_MODE:-enhanced}
+      LLM_FIXTURE_FILE: ${LLM_FIXTURE_FILE:-}
+    ports:
+      - "127.0.0.1:${AI_PORT:-8001}:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # 로컬 Ollama 쓸 때 (Linux 대비)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
 
   mysql:
     image: ${MYSQL_IMAGE:-mysql:8.4}
