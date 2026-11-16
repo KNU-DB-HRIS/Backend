@@ -135,7 +135,15 @@ HR AI는 **팀장(임창학)의 DeepSeek API 키 하나를 팀이 함께 사용*
 bash -c 'read -rsp "DeepSeek API key: " LLM_API_KEY; echo; export LLM_API_KEY; bash ./setup/llm-env.sh'
 ```
 
-`LLM_API_KEY: updated`와 `key length=35` 같은 출력이 나오면 들어간 것입니다. 직접 편집하고 싶다면 `.env`를 VS Code 같은 코드 편집기로 열어 아래 다섯 줄을 채워도 됩니다. macOS 텍스트 편집기(TextEdit)는 따옴표를 둥근 따옴표로 바꿔 마지막 줄이 깨지므로 쓰지 마세요.
+키를 붙여 넣어도 화면에는 아무것도 보이지 않는 것이 정상입니다. Git Bash에서는 Ctrl+V 대신 **Shift+Insert** 또는 마우스 오른쪽 클릭으로 붙여 넣습니다. `LLM_API_KEY: updated`와 `key length=35` 같은 출력이 나오면 들어간 것입니다.
+
+**이미 4단계(`setup.sh`)까지 마친 뒤에 키를 넣었다면** 이어서 아래 명령으로 HR AI만 다시 적용하고, http://localhost:8001/health 에서 `"llm_configured":true`가 나오는지 확인합니다. 키를 넣지 않은 상태에서는 HR AI 화면에 'AI 서버에 연결하지 못했습니다'가 뜹니다.
+
+```bash
+bash ./setup/ai.sh
+```
+
+직접 편집하고 싶다면 `.env`를 VS Code 같은 코드 편집기로 열어 아래 다섯 줄을 채워도 됩니다. macOS 텍스트 편집기(TextEdit)는 따옴표를 둥근 따옴표로 바꿔 마지막 줄이 깨지므로 쓰지 마세요.
 
 ```dotenv
 LLM_BASE_URL=https://api.deepseek.com
@@ -198,6 +206,16 @@ npm ci
 cp .env.example .env
 npm run dev
 ```
+
+프론트엔드 저장소는 비공개라서 처음 받을 때 GitHub 로그인을 요구합니다. GitHub는 git에서 계정 비밀번호를 받지 않으므로, 비밀번호를 물으면 아래 방법으로 로그인하세요.
+
+| 환경 | 방법 |
+| --- | --- |
+| Windows(Git for Windows) | 브라우저 로그인 창이 뜨면 GitHub 계정으로 로그인. 한 번 하면 저장됨 |
+| macOS, Linux | [GitHub CLI](https://cli.github.com/)를 설치하고(macOS는 `brew install gh`) `gh auth login`으로 로그인한 뒤 `gh auth setup-git`을 한 번 실행 |
+| 공통(대안) | Username에 GitHub 아이디, Password에 비밀번호 대신 [Personal Access Token](https://github.com/settings/tokens) 입력 |
+
+KNU-DB-HRIS 조직 멤버가 아니면 로그인해도 접근이 거부되므로 팀장에게 초대를 요청하세요.
 
 터미널에 나온 `Local:` 주소(보통 http://localhost:5173)로 접속해 `admin01`로 로그인합니다. 백엔드 포트를 바꿨다면 프론트엔드 `.env`의 `VITE_BACKEND_ORIGIN`도 같은 포트로 바꾸고 `npm run dev`를 다시 실행합니다. 개발 서버가 API 요청을 백엔드로 전달하므로 이 경우에는 `CORS_ORIGINS`를 바꾸지 않아도 됩니다.
 
@@ -324,12 +342,13 @@ cd ai && python -m pytest -q
 | `Python was not found` 또는 Microsoft Store가 열림 (Windows) | Microsoft Store 바로가기가 실행된 것. 2-1의 7, 8번처럼 'Add python.exe to PATH'를 체크해 설치하고 앱 실행 별칭의 python 항목을 끈 뒤 Git Bash를 새로 열기 |
 | `python: command not found` | Python이 없거나 PATH에 없음. 2장의 내 운영체제 항목대로 설치한 뒤 터미널을 새로 열기 |
 | `set: pipefail\r: invalid option name` 또는 `$'\r': command not found` | Windows 줄바꿈(CRLF)으로 받은 예전 폴더. `git pull` 후 `git rm --cached -r . && git reset --hard`를 실행하거나 저장소를 새로 받기 |
-| `port is already allocated` | 그 포트를 다른 프로그램이 사용 중. `.env`에서 `BACKEND_PORT`나 `AI_PORT`를 바꾸고 `setup.sh` 다시 실행 |
+| `port is already allocated` | 그 포트를 다른 프로그램이 사용 중. 예전에 zip이나 다른 폴더로 받아 둔 백엔드가 Docker를 켤 때 자동으로 같이 켜져 8080을 차지하는 경우가 많음. `docker ps`로 확인하고, 필요 없으면 그 폴더에서 `docker compose down`(DB 데이터는 유지) 후 `setup.sh` 다시 실행. 둘 다 쓰려면 `.env`에서 `BACKEND_PORT`를 바꾸고 프론트엔드 `.env`의 `VITE_BACKEND_ORIGIN`도 맞추기 |
 | `Missing .env` | 3단계의 `cp .env.example .env`를 하지 않음. 또는 `setup.sh`를 먼저 실행 |
 | `Backend is not running` (`database-data.sh`) | `setup.sh`가 끝나지 않았거나 컨테이너가 꺼짐. `docker compose ps`로 확인 후 `docker compose up -d` |
 | 샘플 등록 거부 | 이미 데이터가 있음(정상). 새로 넣으려면 `docker compose down -v` 후 4단계부터 다시 |
 | `cat ./seed-credentials.csv` 파일 없음 | 파일 이름 앞에 점이 있음. `cat ./.seed-credentials.csv` |
-| HR AI `/health`에서 `"llm_configured":false` | LLM 설정이 비어 있음. 3단계의 'HR AI 키 넣기' 후 `bash ./setup/ai.sh` |
+| HR AI 화면에 'AI 서버에 연결하지 못했습니다' 또는 `/health`에서 `"llm_configured":false` | 내 `.env`에 키가 없음(배포 서버의 키는 로컬로 들어오지 않음). 3단계의 'HR AI 키 넣기' 후 `bash ./setup/ai.sh` |
+| 프론트엔드 `git clone`에서 Username, Password를 물음 | 비공개 저장소라 정상. 6단계의 로그인 방법 참고. GitHub 비밀번호는 git에서 쓸 수 없음 |
 | HR AI가 'AI 서버에 연결하지 못했습니다' | 키가 틀렸거나 DeepSeek 잔액 부족. `docker compose logs ai`에서 `LLM_AUTH_FAILED`(키 오류), `LLM_HTTP_402`(잔액 부족) 등을 확인하고 팀장에게 알리기 |
 | HR AI가 '인사관리자만 사용할 수 있습니다' | 사원 계정으로 로그인함. `admin01`로 로그인 |
 
