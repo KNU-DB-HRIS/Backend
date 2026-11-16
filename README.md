@@ -73,7 +73,7 @@ bash ./setup/database-data.sh
 샘플 계정마다 무작위 비밀번호를 발급해 루트의 `.seed-credentials.csv` 파일에 저장합니다. 실행 후 Git Bash에서 확인할 수 있습니다.
 
 ```bash
-cat ./seed-credentials.csv
+cat ./.seed-credentials.csv
 ```
 
 이 파일은 Git 및 Docker 빌드에서 제외되며 생성 시 파일 권한을 제한합니다. **삭제하거나 외부에 공유하지 마세요.** 샘플 데이터 재실행 시 계정 비밀번호는 변경하지 않으므로 처음 생성된 파일을 보관해야 합니다.
