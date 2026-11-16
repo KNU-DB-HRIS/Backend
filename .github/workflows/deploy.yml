@@ -57,7 +57,12 @@ jobs:
             cd "$REPO_DIR"
             INITIALIZED=false
 
-            if [ ! -f .env ] || ! grep -Eq '^AI_DATABASE_URL=mysql\+pymysql://.+' .env; then
+            if [ ! -f .env ]; then
+              if docker volume inspect backend_mysql_data >/dev/null 2>&1; then
+                echo "ERROR: Existing MySQL volume found. Restore the original .env."
+                exit 1
+              fi
+
               bash ./setup/setup.sh
               INITIALIZED=true
             fi

@@ -29,7 +29,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      # 배포 직후 빌드·마이그레이션이 겹치면(1GB 서버, 스왑 사용) 첫 응답이 2분 넘게 걸림. 그동안의 실패는 unhealthy로 세지 않음
       start_period: 180s
     restart: unless-stopped
 
@@ -43,7 +42,6 @@ services:
         condition: service_healthy
 
   ai:
-    # NL2SQL(FastAPI): 질문 → SQL 생성만. DB 접속 없음, LLM 키는 이 컨테이너에만 들어감
     build: ./ai
     environment:
       LLM_BASE_URL: ${LLM_BASE_URL:-}
@@ -77,12 +75,14 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD-SHELL", "MYSQL_PWD=\"$$MYSQL_PASSWORD\" mysql -h 127.0.0.1 -u\"$$MYSQL_USER\" \"$$MYSQL_DATABASE\" -e 'SELECT 1' >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 40s
-    restart: unless-stopped
+      test:
+        - CMD-SHELL
+        - 'MYSQL_PWD="$$MYSQL_PASSWORD" mysql --protocol=tcp --connect-timeout=5 -h 127.0.0.1 -u"$$MYSQL_USER" "$$MYSQL_DATABASE" -e "SELECT 1"'
+      interval: 15s
+      timeout: 10s
+      retries: 12
+      start_period: 120s
+
 
 volumes:
   mysql_data:
