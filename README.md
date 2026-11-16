@@ -125,9 +125,9 @@ cp .env.example .env
 | `AI_DATABASE_URL` | 비어 있음 | HR AI 읽기 전용 DB 계정. 비워 두면 자동 생성 |
 | `LLM_*` | 비어 있음 | HR AI용 LLM 설정. 아래 방법으로 입력 |
 
-### HR AI 키 넣기(선택)
+## 4. HR AI 키 넣기
 
-HR AI는 **팀장(임창학)의 DeepSeek API 키 하나를 팀이 함께 사용**합니다. 서버에는 이미 GitHub Secret으로 등록되어 있어 따로 할 일이 없습니다. 내 컴퓨터에서 HR AI를 확인해야 할 때만 팀장에게 **개인 메시지로** 키를 받아 아래 방법으로 넣으세요. 키가 없어도 HR AI 외의 기능은 모두 확인할 수 있습니다.
+HR AI는 팀장(임창학)의 DeepSeek API 키 하나를 팀이 함께 사용합니다. **API 키는 프로젝트 단체방에 있습니다.** 현재 DeepSeek API 키에는 $2를 충전하였으며, 프로젝트 종료 후 삭제할 예정입니다. 
 
 아래 명령을 한 줄 그대로 실행하고, `DeepSeek API key:`가 나오면 키를 붙여 넣은 뒤 Enter를 누르세요. 입력한 키는 화면과 셸 기록에 남지 않고, 모델 이름과 응답 옵션(DeepSeek 생각 모드 끔, JSON 모드)도 함께 설정됩니다. macOS 기본 셸(zsh)에서도 동작하도록 `bash -c`로 감쌌습니다.
 
@@ -153,9 +153,9 @@ LLM_JSON_MODE=1
 LLM_EXTRA_BODY='{"thinking":{"type":"disabled"}}'
 ```
 
-받은 키는 내 컴퓨터의 `.env`에만 넣고, **단체 채팅방, Notion, Git, 스크린샷에 절대 올리지 마세요.** 키가 공개되면 팀 전체의 잔액이 소진될 수 있습니다. 잔액을 팀이 함께 쓰므로 평가(`ai-eval.sh`)처럼 호출이 많은 작업은 팀장과 상의한 뒤 실행해 주세요. 다른 LLM 제공자(Gemini, OpenAI, Ollama) 예시는 `.env.example`의 주석에 있습니다.
+잔액을 팀이 함께 쓰므로 평가(`ai-eval.sh`)처럼 호출이 많은 작업은 팀장과 상의한 뒤 실행해 주세요. 다른 LLM 제공자(Gemini, OpenAI, Ollama) 예시는 `.env.example`의 주석에 있습니다.
 
-## 4. 설치와 실행
+## 5. 설치와 실행
 
 ```bash
 bash ./setup/setup.sh
@@ -180,7 +180,7 @@ cat ./.seed-credentials.csv
 
 `.seed-credentials.csv`에 샘플 계정의 아이디와 비밀번호가 저장됩니다. 비밀번호는 설치할 때마다 무작위로 만들어지며, 자세한 내용은 아래 '샘플 데이터'를 참고하세요.
 
-## 5. 실행 확인
+## 6. 실행 확인
 
 ```bash
 docker compose ps
@@ -195,7 +195,7 @@ docker compose ps
 
 API 주소는 `http://localhost:8080/api/v1/...`입니다(`/api/v1` 자체는 404가 정상). 로그인과 HR AI 호출은 '샘플 데이터'를 등록한 뒤 아래 'API 인증 예시'로 확인할 수 있습니다.
 
-## 6. 프론트엔드 연결
+## 7. 프론트엔드 연결
 
 화면은 [KNU-DB-HRIS/Frontend](https://github.com/KNU-DB-HRIS/Frontend) 저장소에 있습니다(Node.js 20 이상 필요). 백엔드를 켜 둔 상태에서 실행합니다.
 
@@ -219,7 +219,7 @@ KNU-DB-HRIS 조직 멤버가 아니면 로그인해도 접근이 거부되므로
 
 터미널에 나온 `Local:` 주소(보통 http://localhost:5173)로 접속해 `admin01`로 로그인합니다. 백엔드 포트를 바꿨다면 프론트엔드 `.env`의 `VITE_BACKEND_ORIGIN`도 같은 포트로 바꾸고 `npm run dev`를 다시 실행합니다. 개발 서버가 API 요청을 백엔드로 전달하므로 이 경우에는 `CORS_ORIGINS`를 바꾸지 않아도 됩니다.
 
-## 7. 끄기, 다시 켜기, 초기화
+## 8. 끄기, 다시 켜기, 초기화
 
 | 명령 | 설명 |
 | --- | --- |
