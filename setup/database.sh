@@ -10,6 +10,6 @@ command -v docker >/dev/null || { echo 'Docker is required.' >&2; exit 2; }
 docker compose config --quiet
 docker compose up -d --wait --wait-timeout 180 mysql
 docker compose run --rm --build -T migrate
-docker compose up -d --wait --wait-timeout 180 backend
+docker compose up -d --wait --wait-timeout 300 backend
 
 printf 'Database schema migrations completed.\n'
