@@ -10,16 +10,18 @@ MySQL, API 서버, HR AI 서버가 모두 Docker 컨테이너로 실행되므로
 | --- | --- | --- |
 | Docker Desktop(Windows, macOS) 또는 Docker Engine(Linux) | MySQL, API, HR AI 컨테이너 실행 | Docker Compose **v2.17 이상** |
 | Git | 저장소 받기 | Windows는 Git for Windows를 설치하고 모든 명령을 **Git Bash**에서 실행 |
-| Python 3 | 설치 스크립트가 `.env`와 샘플 계정 파일을 만들 때 사용 | 별도 패키지 설치는 필요 없음 |
-| DeepSeek API 키 | HR AI 기능 | 선택. 없으면 HR AI만 꺼지고 나머지 API는 정상 동작 |
+| Python 3.9 이상 | 설치 스크립트가 `.env`와 샘플 계정 파일을 만들 때 사용 | 표준 라이브러리만 쓰므로 별도 패키지 설치는 필요 없음 |
+| DeepSeek API 키 | HR AI 기능 | 팀장(임창학)의 키를 함께 사용하므로 직접 발급하지 않음. 키가 없어도 HR AI만 꺼지고 나머지 API는 정상 동작 |
 
 Docker Desktop은 메모리 8GB 이상인 컴퓨터를 권장합니다. 이미지와 DB를 합쳐 디스크 여유 공간이 3GB 정도 필요합니다.
 
-## 2. Docker 설치
+## 2. Docker, Git, Python 설치
 
-이미 Docker가 설치되어 있다면 2-4의 설치 확인만 하고 넘어가세요.
+내 운영체제의 항목만 따라 하면 됩니다. 이미 설치된 프로그램은 건너뛰고, 마지막에 2-4의 설치 확인을 합니다.
 
 ### 2-1. Windows
+
+**Docker**
 
 Docker Desktop은 WSL 2 위에서 동작합니다. 64비트 Windows 10 22H2 이상 또는 Windows 11이 필요하고, BIOS(UEFI)에서 가상화가 켜져 있어야 합니다.
 
@@ -32,18 +34,50 @@ Docker Desktop은 WSL 2 위에서 동작합니다. 64비트 Windows 10 22H2 이�
 
 2. [Docker Desktop for Windows](https://docs.docker.com/desktop/setup/install/windows-install/)를 내려받아 설치합니다. WSL 2 사용 여부를 묻는 항목이 나오면 켠 상태로 둡니다.
 3. 시작 메뉴에서 Docker Desktop을 실행하고 약관에 동의합니다. 창 왼쪽 아래 상태가 'Engine running'이 될 때까지 기다립니다.
-4. [Git for Windows](https://git-scm.com/download/win)를 설치합니다. 이후 명령은 모두 시작 메뉴의 **Git Bash**에서 실행합니다.
-5. [Python 3](https://www.python.org/downloads/)를 설치합니다. 설치 첫 화면에서 **'Add python.exe to PATH'를 반드시 체크**하세요.
+
+**Git**
+
+4. [Git for Windows 다운로드 페이지](https://git-scm.com/install/windows)에서 x64 Setup을 받아 설치합니다(ARM 노트북은 ARM64 Setup). 설치 화면의 선택지는 모두 기본값 그대로 두고 Next를 눌러도 됩니다. winget을 쓴다면 PowerShell에서 아래 명령으로도 설치할 수 있습니다.
+
+   ```powershell
+   winget install --id Git.Git -e --source winget
+   ```
+
+5. 설치가 끝나면 시작 메뉴에서 **Git Bash**를 엽니다. 이후 README의 명령은 모두 Git Bash에서 실행합니다.
+
+**Python 3**
+
+6. [Python Windows 다운로드 페이지](https://www.python.org/downloads/windows/)에서 최신 안정 버전의 **Windows installer (64-bit)**를 받아 실행합니다(ARM 노트북은 ARM64).
+7. 설치 첫 화면 아래쪽의 **'Add python.exe to PATH'를 반드시 체크**한 뒤 Install Now를 누릅니다. 이 체크를 빠뜨리면 Git Bash에서 `python` 명령을 찾지 못합니다.
+8. Windows 설정 → 앱 → 고급 앱 설정 → **앱 실행 별칭**에서 '앱 설치 관리자'의 `python.exe`, `python3.exe` 두 항목을 끕니다. 켜져 있으면 `python`을 실행할 때 진짜 Python 대신 Microsoft Store가 열립니다.
+9. 열려 있던 Git Bash를 모두 닫고 새로 엽니다(새 PATH는 새 창부터 적용됩니다).
+
+> python.org는 Windows용으로 'Python install manager'도 제공하며, 위의 설치 파일(Windows installer)은 Python 3.16부터 나오지 않을 예정입니다. install manager로 설치했다면 처음 실행할 때 명령 폴더를 PATH에 추가할지 묻는 질문에 yes를 고르고, 앱 실행 별칭의 'Python (default)' 항목은 켜 둔 채로 두세요.
 
 ### 2-2. macOS
 
-1. [Docker Desktop for Mac](https://docs.docker.com/desktop/setup/install/mac-install/)에서 내 컴퓨터 칩(Apple Silicon 또는 Intel)에 맞는 파일을 받아 설치합니다.
+**Docker**
+
+1. [Docker Desktop for Mac](https://docs.docker.com/desktop/setup/install/mac-install/)에서 내 컴퓨터 칩(Apple Silicon 또는 Intel)에 맞는 파일을 받아 설치합니다. 칩은 Apple 메뉴 → 이 Mac에 관하여에서 확인할 수 있습니다.
 2. 응용 프로그램 폴더에서 Docker를 실행하고, 메뉴 막대의 고래 아이콘이 실행 중 상태가 될 때까지 기다립니다.
-3. 터미널에서 `git --version`을 실행합니다. 설치 안내 창이 뜨면 '설치'를 누릅니다(Command Line Tools와 함께 Git, Python 3가 설치됩니다).
+
+**Git과 Python 3**
+
+macOS는 Apple의 Command Line Tools 하나로 Git과 Python 3가 함께 설치됩니다.
+
+3. 터미널(응용 프로그램 → 유틸리티 → 터미널)에서 아래 명령을 실행합니다. 설치 안내 창이 뜨면 '설치'를 누르고, 이미 설치되어 있다는 메시지가 나오면 그대로 넘어가면 됩니다.
+
+   ```bash
+   xcode-select --install
+   ```
+
+4. 설치가 끝나면 `git --version`, `python3 --version`으로 확인합니다. Command Line Tools의 Python(3.9)으로도 설치 스크립트가 정상 동작합니다.
+
+Homebrew를 쓰고 있다면 `brew install git python`으로 최신 버전을 설치해도 됩니다.
 
 ### 2-3. Linux(Ubuntu)
 
-배포 서버와 같은 환경입니다. 자세한 방법은 [Docker Engine 설치 문서](https://docs.docker.com/engine/install/ubuntu/)를 따르고, 개발용으로는 공식 설치 스크립트를 써도 됩니다.
+배포 서버와 같은 환경입니다. Docker의 자세한 설치 방법은 [Docker Engine 설치 문서](https://docs.docker.com/engine/install/ubuntu/)를 따르고, 개발용으로는 공식 설치 스크립트를 써도 됩니다.
 
 ```bash
 curl -fsSL https://get.docker.com -o get-docker.sh
@@ -53,9 +87,16 @@ sudo usermod -aG docker $USER
 
 마지막 줄은 `sudo` 없이 `docker`를 쓰기 위한 설정이며, 로그아웃 후 다시 로그인해야 적용됩니다.
 
+Git과 Python 3는 apt로 설치합니다. Ubuntu에는 Python 3가 기본으로 들어 있는 경우가 많고, 이미 설치되어 있으면 최신 상태라는 메시지만 나옵니다.
+
+```bash
+sudo apt update
+sudo apt install -y git python3
+```
+
 ### 2-4. 설치 확인
 
-Docker를 실행해 둔 상태에서 아래 명령을 실행합니다(Windows는 Git Bash). `docker compose version`이 v2.17.0 이상이고, `hello-world`에서 'Hello from Docker!'가 나오고, Git과 Python 버전이 출력되면 준비가 끝난 것입니다.
+Docker를 실행해 둔 상태에서 **새 터미널 창**을 열어 아래 명령을 실행합니다(Windows는 Git Bash). `docker compose version`이 v2.17.0 이상이고, `hello-world`에서 'Hello from Docker!'가 나오고, Git 버전과 Python 3.9 이상의 버전이 출력되면 준비가 끝난 것입니다.
 
 ```bash
 docker version
@@ -86,7 +127,9 @@ cp .env.example .env
 
 ### HR AI 키 넣기(선택)
 
-HR AI를 쓰려면 DeepSeek API 키가 필요합니다. 아래 명령을 한 줄 그대로 실행하고, `DeepSeek API key:`가 나오면 키를 붙여 넣은 뒤 Enter를 누르세요. 입력한 키는 화면과 셸 기록에 남지 않고, 모델 이름과 응답 옵션(DeepSeek 생각 모드 끔, JSON 모드)도 함께 설정됩니다. macOS 기본 셸(zsh)에서도 동작하도록 `bash -c`로 감쌌습니다.
+HR AI는 **팀장(임창학)의 DeepSeek API 키 하나를 팀이 함께 사용**합니다. 서버에는 이미 GitHub Secret으로 등록되어 있어 따로 할 일이 없습니다. 내 컴퓨터에서 HR AI를 확인해야 할 때만 팀장에게 **개인 메시지로** 키를 받아 아래 방법으로 넣으세요. 키가 없어도 HR AI 외의 기능은 모두 확인할 수 있습니다.
+
+아래 명령을 한 줄 그대로 실행하고, `DeepSeek API key:`가 나오면 키를 붙여 넣은 뒤 Enter를 누르세요. 입력한 키는 화면과 셸 기록에 남지 않고, 모델 이름과 응답 옵션(DeepSeek 생각 모드 끔, JSON 모드)도 함께 설정됩니다. macOS 기본 셸(zsh)에서도 동작하도록 `bash -c`로 감쌌습니다.
 
 ```bash
 bash -c 'read -rsp "DeepSeek API key: " LLM_API_KEY; echo; export LLM_API_KEY; bash ./setup/llm-env.sh'
@@ -102,7 +145,7 @@ LLM_JSON_MODE=1
 LLM_EXTRA_BODY='{"thinking":{"type":"disabled"}}'
 ```
 
-API 키는 채팅이나 Git에 절대 올리지 말고 각자 `.env`에만 넣습니다. 다른 LLM 제공자(Gemini, OpenAI, Ollama) 예시는 `.env.example`의 주석에 있습니다.
+받은 키는 내 컴퓨터의 `.env`에만 넣고, **단체 채팅방, Notion, Git, 스크린샷에 절대 올리지 마세요.** 키가 공개되면 팀 전체의 잔액이 소진될 수 있습니다. 잔액을 팀이 함께 쓰므로 평가(`ai-eval.sh`)처럼 호출이 많은 작업은 팀장과 상의한 뒤 실행해 주세요. 다른 LLM 제공자(Gemini, OpenAI, Ollama) 예시는 `.env.example`의 주석에 있습니다.
 
 ## 4. 설치와 실행
 
@@ -240,7 +283,7 @@ curl -s -b cookies.txt -H 'Content-Type: application/json' -H "X-CSRF-Token: $CS
 
 ### 평가(과제 NL2SQL 확장)
 
-샘플 데이터(`database-data.sh`)를 등록한 상태에서 실행합니다. L1~L3 질문 19개를 simple, enhanced 두 프롬프트로 3회씩 돌리며 약 3분, LLM 비용은 100원 안팎이 듭니다.
+샘플 데이터(`database-data.sh`)를 등록한 상태에서 실행합니다. L1~L3 질문 19개를 simple, enhanced 두 프롬프트로 3회씩 돌리며 약 3분, LLM 비용은 100원 안팎이 듭니다. 팀 공용 키의 잔액을 쓰므로 실행 전에 팀장과 상의해 주세요.
 
 ```bash
 bash ./setup/ai-eval.sh --repeat 3
@@ -269,7 +312,7 @@ cd ai && python -m pytest -q
 3. 이미지를 빌드하고 컨테이너를 띄운 뒤 `setup/database.sh`(마이그레이션)와 `setup/ai.sh`(HR AI 권한)를 실행합니다.
 4. 마지막 줄에 `HR AI health`를 출력합니다. `"llm_configured":true`면 HR AI까지 정상입니다.
 
-서버 접속 정보(`ORACLE_CLOUD_VM_*`)와 `LLM_API_KEY`는 저장소 Settings → Secrets and variables → Actions에 등록되어 있습니다. 서버 메모리가 1GB라서 배포 직후 2~3분 동안은 응답이 느릴 수 있습니다. 이 저장소는 공개 저장소이므로 Actions 로그도 누구나 볼 수 있습니다. 배포 스크립트에서 `.env` 내용이나 사용자 데이터를 출력하지 마세요.
+서버 접속 정보(`ORACLE_CLOUD_VM_*`)와 팀장의 DeepSeek 키(`LLM_API_KEY`)는 저장소 Settings → Secrets and variables → Actions에 등록되어 있습니다. 키를 바꿀 때는 이 Secret만 바꾸고 Run workflow를 실행하면 됩니다. 서버 메모리가 1GB라서 배포 직후 2~3분 동안은 응답이 느릴 수 있습니다. 이 저장소는 공개 저장소이므로 Actions 로그도 누구나 볼 수 있습니다. 배포 스크립트에서 `.env` 내용이나 사용자 데이터를 출력하지 마세요.
 
 ## 문제 해결
 
@@ -278,7 +321,8 @@ cd ai && python -m pytest -q
 | `Start Docker Desktop or Docker Engine first.` | Docker가 꺼져 있음. Docker Desktop을 실행하고 'Engine running'이 된 뒤 다시 실행 |
 | `unknown flag: --wait-timeout` | Docker Compose가 오래됨. Docker Desktop을 최신으로 업데이트(v2.17 이상) |
 | `permission denied ... docker.sock` (Linux) | `sudo usermod -aG docker $USER` 후 다시 로그인 |
-| `Python was not found` (Windows) | Microsoft Store 바로가기가 실행된 것. python.org에서 Python을 'Add python.exe to PATH'를 체크해 설치하거나, Windows 설정의 '앱 실행 별칭'에서 python 항목을 끄기 |
+| `Python was not found` 또는 Microsoft Store가 열림 (Windows) | Microsoft Store 바로가기가 실행된 것. 2-1의 7, 8번처럼 'Add python.exe to PATH'를 체크해 설치하고 앱 실행 별칭의 python 항목을 끈 뒤 Git Bash를 새로 열기 |
+| `python: command not found` | Python이 없거나 PATH에 없음. 2장의 내 운영체제 항목대로 설치한 뒤 터미널을 새로 열기 |
 | `set: pipefail\r: invalid option name` 또는 `$'\r': command not found` | Windows 줄바꿈(CRLF)으로 받은 예전 폴더. `git pull` 후 `git rm --cached -r . && git reset --hard`를 실행하거나 저장소를 새로 받기 |
 | `port is already allocated` | 그 포트를 다른 프로그램이 사용 중. `.env`에서 `BACKEND_PORT`나 `AI_PORT`를 바꾸고 `setup.sh` 다시 실행 |
 | `Missing .env` | 3단계의 `cp .env.example .env`를 하지 않음. 또는 `setup.sh`를 먼저 실행 |
@@ -286,7 +330,7 @@ cd ai && python -m pytest -q
 | 샘플 등록 거부 | 이미 데이터가 있음(정상). 새로 넣으려면 `docker compose down -v` 후 4단계부터 다시 |
 | `cat ./seed-credentials.csv` 파일 없음 | 파일 이름 앞에 점이 있음. `cat ./.seed-credentials.csv` |
 | HR AI `/health`에서 `"llm_configured":false` | LLM 설정이 비어 있음. 3단계의 'HR AI 키 넣기' 후 `bash ./setup/ai.sh` |
-| HR AI가 'AI 서버에 연결하지 못했습니다' | 키가 틀렸거나 DeepSeek 잔액 부족. `docker compose logs ai`에서 `LLM_AUTH_FAILED`, `LLM_HTTP_402` 등 확인 |
+| HR AI가 'AI 서버에 연결하지 못했습니다' | 키가 틀렸거나 DeepSeek 잔액 부족. `docker compose logs ai`에서 `LLM_AUTH_FAILED`(키 오류), `LLM_HTTP_402`(잔액 부족) 등을 확인하고 팀장에게 알리기 |
 | HR AI가 '인사관리자만 사용할 수 있습니다' | 사원 계정으로 로그인함. `admin01`로 로그인 |
 
 ## 프로젝트 구조
