@@ -7,9 +7,16 @@ cd -- "$ROOT_DIR"
 [[ -f .env ]] || { echo 'Missing .env. Run bash setup.sh first.' >&2; exit 2; }
 command -v docker >/dev/null || { echo 'Docker is required.' >&2; exit 2; }
 
-docker compose config --quiet
-docker compose up -d --wait --wait-timeout 180 mysql
-docker compose run --rm --build -T migrate
-docker compose up -d --wait --wait-timeout 300 backend
+
+if ! docker compose up -d --wait --wait-timeout 360 mysql; then
+  echo "ERROR: MySQL initialization failed."
+  docker compose ps mysql
+  docker compose logs --tail=100 mysql
+  docker inspect \
+    --format '{{range .State.Health.Log}}{{println .ExitCode .Output}}{{end}}' \
+    "$(docker compose ps -q mysql)" || true
+  exit 1
+fi
+
 
 printf 'Database schema migrations completed.\n'
