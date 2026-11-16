@@ -14,3 +14,4 @@ build/
 .DS_Store
 ai/eval/out/
 .pytest_cache/
+cookies.txt
