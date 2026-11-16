@@ -1,13 +1,20 @@
+
 name: Deploy Backend
 
 on:
   push:
     branches: [main]
     paths:
+      - ".github/workflows/deploy.yml"
       - "app/**"
       - "ai/**"
-      - "setup/*"
+      - "database/**"
+      - "setup/**"
       - "wsgi.py"
+      - "compose.yaml"
+      - "Dockerfile"
+      - "requirements.txt"
+      - ".env.example"
   workflow_dispatch:
 
 concurrency:
@@ -38,42 +45,32 @@ jobs:
             REPO_URL="https://github.com/KNU-DB-HRIS/Backend.git"
 
             if [ -d "$REPO_DIR/.git" ]; then
-              echo "Repository exists. Updating..."
-              cd "$REPO_DIR"
-              git fetch origin main
-              git reset --hard origin/main
+              git -C "$REPO_DIR" fetch --depth 1 origin main
+              git -C "$REPO_DIR" reset --hard origin/main
             elif [ ! -e "$REPO_DIR" ]; then
-              echo "Repository not found. Cloning..."
-              git clone --branch main "$REPO_URL" "$REPO_DIR"
-              cd "$REPO_DIR"
+              git clone --depth 1 --branch main "$REPO_URL" "$REPO_DIR"
             else
-              echo "ERROR: Repository path exists but is not a Git repository."
+              echo "ERROR: Invalid repository directory."
               exit 1
             fi
 
-            test -f .env
+            cd "$REPO_DIR"
+            INITIALIZED=false
 
-            chmod +x ./setup/*.sh
+            if [ ! -f .env ] || ! grep -Eq '^AI_DATABASE_URL=mysql\+pymysql://.+' .env; then
+              bash ./setup/setup.sh
+              INITIALIZED=true
+            fi
 
             if [ -n "${LLM_API_KEY:-}" ]; then
-              ./setup/llm-env.sh || echo "HR AI: LLM settings NOT applied, deploy continues"
-            else
-              echo "HR AI: LLM_API_KEY secret not set, LLM settings unchanged"
+              bash ./setup/llm-env.sh
             fi
 
-            docker compose config --quiet
-            docker compose build backend ai
-            docker compose up -d
-
-            ./setup/database.sh
-
-            if grep -Eq '^AI_DATABASE_URL=mysql' .env; then
-              ./setup/ai.sh
+            if [ "$INITIALIZED" = true ]; then
+              docker compose up -d --wait --wait-timeout 300 ai
             else
-              echo "HR AI: AI_DATABASE_URL not set, skipped"
+              bash ./setup/database.sh
+              bash ./setup/ai.sh
             fi
-
-            ai_port="$(sed -n 's/^AI_PORT=//p' .env | tail -1)"
-            echo "HR AI health: $(curl -fsS --max-time 5 "http://127.0.0.1:${ai_port:-8001}/health" 2>&1 || true)"
 
             docker compose ps
