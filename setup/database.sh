@@ -1,12 +1,12 @@
+
 #!/usr/bin/env bash
 set -euo pipefail
 
-[[ $# -eq 0 ]] || { echo 'Usage: bash database.sh' >&2; exit 2; }
 ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-cd -- "$ROOT_DIR"
-[[ -f .env ]] || { echo 'Missing .env. Run bash setup.sh first.' >&2; exit 2; }
-command -v docker >/dev/null || { echo 'Docker is required.' >&2; exit 2; }
+cd "$ROOT_DIR"
 
+test -f .env
+docker compose config --quiet
 
 if ! docker compose up -d --wait --wait-timeout 360 mysql; then
   echo "ERROR: MySQL initialization failed."
@@ -18,5 +18,7 @@ if ! docker compose up -d --wait --wait-timeout 360 mysql; then
   exit 1
 fi
 
+docker compose run --rm --build -T migrate
+docker compose up -d --wait --wait-timeout 300 backend
 
-printf 'Database schema migrations completed.\n'
+echo "Database schema migrations completed."
