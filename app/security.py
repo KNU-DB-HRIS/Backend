@@ -30,7 +30,36 @@ def create_account(conn, employee_id, username, password, role_id):
     return user_id
 
 
-def load_actor(conn, user_id):
+def company_role_rows(conn, user_id, company_id):
+    """소속 회사 밖의 회사에서 이 사용자가 가진 역할 (user_company_roles, 활성 회사만)"""
+    return all_rows(
+        conn,
+        "SELECT r.role_id,r.role_code,r.role_name FROM user_company_roles ucr "
+        "JOIN roles r ON r.role_id=ucr.role_id AND r.is_active=1 "
+        "JOIN companies c ON c.company_id=ucr.company_id AND c.is_active=1 "
+        "WHERE ucr.user_id=:user AND ucr.company_id=:company",
+        {"user": user_id, "company": company_id},
+    )
+
+
+def accessible_companies(conn, user_id, home_company_id):
+    """회사 전환 메뉴에 보일 회사: 소속 회사 + user_company_roles로 역할이 있는 활성 회사"""
+    return all_rows(
+        conn,
+        "SELECT c.company_id,c.company_name AS name,g.group_name,"
+        "(c.company_id=:home) AS is_home,"
+        "(SELECT COUNT(*) FROM employees e WHERE e.company_id=c.company_id "
+        "AND e.employment_status IN ('ACTIVE','ON_LEAVE')) AS headcount "
+        "FROM companies c LEFT JOIN company_groups g ON g.group_id=c.group_id "
+        "WHERE c.is_active=1 AND (c.company_id=:home OR EXISTS (SELECT 1 FROM user_company_roles ucr "
+        "JOIN roles r ON r.role_id=ucr.role_id AND r.is_active=1 "
+        "WHERE ucr.user_id=:user AND ucr.company_id=c.company_id)) "
+        "ORDER BY (c.company_id=:home) DESC, c.company_name",
+        {"user": user_id, "home": home_company_id},
+    )
+
+
+def load_actor(conn, user_id, active_company_id=None):
     actor = one(
         conn,
         "SELECT u.user_id,u.username,u.status,e.employee_id,e.employee_name,"
@@ -43,27 +72,32 @@ def load_actor(conn, user_id):
     )
     if not actor or actor["status"] != "ACTIVE" or actor["employment_status"] == "TERMINATED":
         raise ApiError("UNAUTHENTICATED", 401)
+    actor["home_company_id"] = actor["company_id"]
     roles = all_rows(
         conn,
-        "SELECT r.role_code,r.role_name FROM roles r JOIN user_roles ur "
+        "SELECT r.role_id,r.role_code,r.role_name FROM roles r JOIN user_roles ur "
         "ON ur.role_id=r.role_id WHERE ur.user_id=:id AND r.is_active=1",
         {"id": user_id},
     )
+    if active_company_id and int(active_company_id) != actor["company_id"]:
+        # 계열사 전환: 그 회사에 부여된 역할이 있을 때만. 없으면(권한 회수 등) 소속 회사로 되돌아감
+        company_roles = company_role_rows(conn, user_id, active_company_id)
+        if company_roles:
+            actor["company_id"], roles = int(active_company_id), company_roles
     actor["roles"] = [r["role_code"] for r in roles]
     if not set(actor["roles"]) & {"HR_ADMIN", "EMPLOYEE"}:
         raise ApiError("FORBIDDEN", 403)
     actor["role_label"] = next(
         (r["role_name"] for r in roles if r["role_code"] == "HR_ADMIN"), roles[0]["role_name"]
     )
+    role_params = {f"r{i}": r["role_id"] for i, r in enumerate(roles)}
     granted = all_rows(
         conn,
         "SELECT DISTINCT p.permission_code FROM permissions p "
         "JOIN role_permissions rp ON rp.permission_id=p.permission_id "
-        "JOIN user_roles ur ON ur.role_id=rp.role_id "
-        "JOIN roles r ON r.role_id=ur.role_id "
-        "WHERE ur.user_id=:id AND p.is_active=1 AND r.is_active=1 "
+        f"WHERE rp.role_id IN ({','.join(':' + k for k in role_params)}) AND p.is_active=1 "
         "AND p.permission_code LIKE 'MENU_%'",
-        {"id": user_id},
+        role_params,
     )
     order = ("DASHBOARD", "EMPLOYEES", "PAYROLL", "ORGANIZATION", "EVALUATION", "DOCUMENTS", "AI")
     allowed = {p["permission_code"].removeprefix("MENU_") for p in granted}
@@ -97,7 +131,7 @@ def require_auth(admin=False, error_code="FORBIDDEN"):
                 )
                 if not session or session["revoked_at"] or session["expires_at"] <= now():
                     raise ApiError("UNAUTHENTICATED", 401)
-                g.actor = load_actor(conn, session["user_id"])
+                g.actor = load_actor(conn, session["user_id"], session.get("active_company_id"))
                 g.auth_session = session
                 if admin and not is_admin():
                     raise ApiError(error_code, 403)

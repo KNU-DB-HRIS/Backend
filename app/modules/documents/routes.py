@@ -39,7 +39,7 @@ def issue(employee_id, kind, build_payload, key):
             company = one(
                 conn,
                 "SELECT company_name FROM companies WHERE company_id=:id",
-                {"id": g.actor["company_id"]},
+                {"id": employee["company_id"]},
             )
             issued_at = now()
             relative = f"documents/{secrets.token_hex(16)}.pdf"
