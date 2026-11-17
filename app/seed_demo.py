@@ -17,6 +17,7 @@ MENUS = (
     ("ORGANIZATION", "조직 관리"),
     ("EVALUATION", "평가 관리"),
     ("DOCUMENTS", "전자 문서"),
+    ("SCHEDULE", "일정"),
     ("AI", "HR AI"),
 )
 DEPARTMENTS = (
@@ -59,7 +60,7 @@ def add_roles(conn):
         execute(conn,
                 "INSERT IGNORE INTO permissions(permission_code,permission_name,resource_type,action_type,is_active) "
                 "VALUES(:code,:name,'menu','VIEW',1)", {"code": code, "name": name})
-        for role_code in (("HR_ADMIN", "EMPLOYEE") if menu == "DOCUMENTS" else ("HR_ADMIN",)):
+        for role_code in (("HR_ADMIN", "EMPLOYEE") if menu in ("DOCUMENTS", "SCHEDULE") else ("HR_ADMIN",)):
             execute(conn,
                     "INSERT IGNORE INTO role_permissions(role_id,permission_id) "
                     "SELECT r.role_id,p.permission_id FROM roles r JOIN permissions p "
