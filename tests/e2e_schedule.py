@@ -82,7 +82,11 @@ check("S1 준비: 개발팀 하위 '플랫폼' 부서와 직원 계정", s == 20
 dev_emp, design_emp, plat = Client(), Client(), Client()
 m3 = dev_emp.login("employee03"); dev_emp_me = m3
 design_emp.login("employee04"); plat.login(f"plat{tag}", e["temporary_password"])
-check("S2 사원 메뉴에도 일정", "SCHEDULE" in m3["menus"], f"{m3['menus']}")
+check("S2 사원 메뉴에도 일정과 대시보드", {"SCHEDULE", "DASHBOARD"} <= set(m3["menus"]), f"{m3['menus']}")
+s, js = dev_emp.call("GET", "/dashboard")
+check("S3 회사 전체 대시보드 API는 계속 관리자 전용(사원 403)", s == 403, f"{s}")
+s, js = dev_emp.call("GET", "/approvals/summary")
+check("S4 사원 대시보드용 결재 요약 API(진행 중 포함)", s == 200 and {"my_pending", "in_progress"} <= set(js), f"{s} {js}")
 
 
 def ev(title, scope, targets=None, **extra):
@@ -103,7 +107,11 @@ ids = {"dev": my_ids(dev_emp), "design": my_ids(design_emp), "plat": my_ids(plat
 check("E4 전사 일정은 모두에게", all(e1["event_id"] in v for v in ids.values()))
 check("E5 개발팀(하위 포함): 개발팀, 하위 플랫폼 O / 디자인 X", e2["event_id"] in ids["dev"] and e2["event_id"] in ids["plat"] and e2["event_id"] not in ids["design"])
 check("E6 개발팀(하위 제외): 개발팀 O / 하위 플랫폼 X", e3["event_id"] in ids["dev"] and e3["event_id"] not in ids["plat"])
-dev_active = int(sql(f"SELECT COUNT(*) FROM employees WHERE department_id IN ({dev},{child_id}) AND employment_status IN ('ACTIVE','ON_LEAVE')"))
+# 기대값: 개발팀과 모든 하위 부서의 재직자를 DB 재귀 쿼리로 직접 계산 (앱의 하위 부서 계산과 독립 대조)
+dev_active = int(sql("WITH RECURSIVE t AS (SELECT department_id FROM departments WHERE department_id=%d "
+                     "UNION ALL SELECT d.department_id FROM departments d JOIN t ON d.parent_department_id=t.department_id) "
+                     "SELECT COUNT(*) FROM employees WHERE department_id IN (SELECT department_id FROM t) "
+                     "AND employment_status IN ('ACTIVE','ON_LEAVE')" % dev))
 check("E7 등록 응답의 표시 대상 인원 = 개발팀+하위 재직자", e2["audience_count"] == dev_active, f"{e2['audience_count']} vs {dev_active}")
 s, js = admin.call("GET", f"/events/audience?scope=DEPARTMENTS&targets={dev}:1")
 check("E8 대상 인원 미리보기 API", s == 200 and js["audience_count"] == dev_active, f"{js}")
