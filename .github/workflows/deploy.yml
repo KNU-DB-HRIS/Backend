@@ -16,6 +16,11 @@ on:
       - "requirements.txt"
       - ".env.example"
   workflow_dispatch:
+    inputs:
+      health_only:
+        description: "배포 없이 서버 상태만 확인 (Health check only)"
+        type: boolean
+        default: false
 
 concurrency:
   group: backend-deploy
@@ -28,6 +33,7 @@ jobs:
 
     steps:
       - name: Deploy to Oracle Cloud
+        if: ${{ !inputs.health_only }}
         uses: appleboy/ssh-action@v1
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
@@ -79,3 +85,80 @@ jobs:
             fi
 
             docker compose ps
+
+      # 배포 후 상태 수집 (공개 로그라 상태 코드와 서비스 상태만 출력). 판정은 다음 'Health check' 단계
+      - name: Health check (collect from server)
+        id: health
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.ORACLE_CLOUD_VM_PUBLIC_IP }}
+          username: ${{ secrets.ORACLE_CLOUD_VM_USERNAME }}
+          password: ${{ secrets.ORACLE_CLOUD_VM_SSH_PASSWORD }}
+          port: ${{ secrets.ORACLE_CLOUD_VM_SSH_PORT }}
+          command_timeout: 5m
+          capture_stdout: true
+          script: |
+            set -u
+            REPO_DIR="${HC_REPO_DIR:-$HOME/Backend}"
+            TRIES="${HC_TRIES:-24}"
+            cd "$REPO_DIR" || { echo "FAIL repository directory not found"; exit 1; }
+            port() { v="$(sed -n "s/^$1=//p" .env | tail -1)"; v="${v##*:}"; printf '%s' "${v:-$2}"; }
+            BODY="$(mktemp)"; trap 'rm -f "$BODY"' EXIT
+            fail=0
+            check() {
+              i=0; code=000
+              while [ "$i" -lt "$TRIES" ]; do
+                code="$(curl -s -m 5 -o "$BODY" -w '%{http_code}' "$2" || true)"
+                if [ "$code" = 200 ]; then echo "OK   $1 -> 200"; return 0; fi
+                i=$((i + 1)); [ "$i" -lt "$TRIES" ] && sleep 5
+              done
+              echo "FAIL $1 -> $code (after $TRIES tries)"; return 1
+            }
+
+            for s in mysql backend ai; do
+              if docker compose ps --status running --services 2>/dev/null | grep -qx "$s"; then
+                echo "OK   container $s -> $(docker compose ps --format '{{.Status}}' "$s" 2>/dev/null | head -1)"
+              else
+                echo "FAIL container $s -> not running"; fail=1
+              fi
+            done
+
+            check "backend /health/ready" "http://127.0.0.1:$(port BACKEND_PORT 8080)/health/ready" || fail=1
+            if check "ai /health" "http://127.0.0.1:$(port AI_PORT 8001)/health"; then
+              grep -q '"llm_configured":true' "$BODY" && echo "OK   ai LLM key configured" || echo "WARN ai LLM key not configured (HR AI questions will fail)"
+            else
+              fail=1
+            fi
+
+            latest="$(ls database/*.sql 2>/dev/null | sed 's|.*/||' | sort | tail -1)"
+            applied="$(docker compose exec -T -e LATEST="$latest" mysql sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysql -u"$MYSQL_USER" "$MYSQL_DATABASE" -N -e "SELECT COUNT(*) FROM schema_migrations WHERE name=\"$LATEST\""' 2>/dev/null | tr -d '[:space:]')"
+            if [ "$applied" = 1 ]; then echo "OK   migration $latest applied"; else echo "FAIL migration $latest not applied"; fail=1; fi
+
+            [ "$fail" = 0 ] && echo "RESULT healthy" || echo "RESULT unhealthy"
+            # 판정은 다음 단계에서 (capture_stdout은 원격 명령이 실패하면 출력이 저장되지 않음)
+            exit 0
+
+      - name: Health check
+        if: always()
+        env:
+          HOST: ${{ secrets.ORACLE_CLOUD_VM_PUBLIC_IP }}
+          SERVER_RESULT: ${{ steps.health.outputs.stdout }}
+        run: |
+          code="$(curl -s -m 10 -o /dev/null -w '%{http_code}' "http://${HOST}:8080/health/ready" || true)"
+          {
+            echo "### Health check"
+            echo '```'
+            printf '%s\n' "${SERVER_RESULT:-server health check did not run (deploy or SSH step failed)}"
+            echo "public backend /health/ready -> $code"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "public backend /health/ready -> $code"
+          if [ "$code" != 200 ]; then echo "::warning::Public health check returned $code (port 8080 may be closed on purpose)"; fi
+          if printf '%s\n' "$SERVER_RESULT" | grep -q '^RESULT healthy'; then
+            echo "Health check passed"
+          else
+            if [ -z "$SERVER_RESULT" ]; then echo "server health check did not run (deploy or SSH step failed)"; fi
+            printf '%s\n' "$SERVER_RESULT" | grep -E '^(FAIL|WARN)' || true
+            echo "::error::Server health check failed"
+            exit 1
+          fi
