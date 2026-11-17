@@ -6,4 +6,4 @@
 .env.*
 instance
 *.log
-.seed-credentials.csv
+.seed-credentials*.csv
