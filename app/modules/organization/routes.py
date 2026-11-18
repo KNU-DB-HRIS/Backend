@@ -9,7 +9,7 @@ from flask import Blueprint, current_app, g, request, send_file
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy.exc import IntegrityError
 
-from app.db import audit, insert, lock_company, one, scalar, today, transaction, update
+from app.db import all_rows, audit, insert, lock_company, one, scalar, today, transaction, update
 from app.errors import ApiError
 from app.modules.organization.services import (
     RESOURCES,
@@ -20,7 +20,7 @@ from app.modules.organization.services import (
     organization_rows,
     validate_reference,
 )
-from app.security import require_auth
+from app.security import accessible_companies, require_auth
 from app.validation import (
     body,
     date_field,
@@ -101,6 +101,72 @@ def edit_company():
             {"id": g.actor["company_id"]},
         )
 
+
+
+def validate_company_fields(data):
+    if "business_number" in data and not re.fullmatch(r"\d{3}-\d{2}-\d{5}", data["business_number"]):
+        raise ApiError("VALIDATION_ERROR", details={"field": "business_number"})
+    if data.get("homepage") and not data["homepage"].startswith(("http://", "https://")):
+        raise ApiError("VALIDATION_ERROR", details={"field": "homepage"})
+
+
+@bp.get("/companies")
+@require_auth(admin=True)
+def companies():
+    """계열사 목록: 내가 접근할 수 있는 회사(소속 + 역할을 받은 회사)와 인원"""
+    with transaction() as conn:
+        rows = accessible_companies(conn, g.actor["user_id"], g.actor["home_company_id"])
+        details = {
+            r["company_id"]: r
+            for r in all_rows(
+                conn,
+                "SELECT company_id,business_number,ceo_name,industry,created_at FROM companies "
+                f"WHERE company_id IN ({','.join(str(int(x['company_id'])) for x in rows) or '0'})",
+            )
+        }
+        items = []
+        for r in rows:
+            d = details.get(r["company_id"], {})
+            items.append({
+                **r, "is_home": bool(r["is_home"]), "is_current": r["company_id"] == g.actor["company_id"],
+                "business_number": d.get("business_number"), "ceo_name": d.get("ceo_name"),
+                "industry": d.get("industry"), "created_at": d.get("created_at"),
+            })
+        return {"items": items, "total": len(items)}
+
+
+@bp.post("/companies")
+@require_auth(admin=True)
+def create_company():
+    """계열사 생성: 현재 회사와 같은 그룹으로 만들고, 만든 사람에게 그 회사의 HR_ADMIN을 부여"""
+    fields = {k: v for k, v in COMPANY_FIELDS.items() if k != "logo_url"}
+    data = body(fields, required=("name", "business_number"))
+    validate_company_fields(data)
+    with transaction() as conn:
+        current = one(
+            conn,
+            "SELECT company_id,company_name,group_id FROM companies WHERE company_id=:id FOR UPDATE",
+            {"id": g.actor["company_id"]},
+        )
+        group_id = current["group_id"]
+        if group_id is None:
+            name = f"{current['company_name']} 그룹"
+            group_id = scalar(conn, "SELECT group_id FROM company_groups WHERE group_name=:n", {"n": name}) or insert(
+                conn, "company_groups", {"group_name": name}
+            )
+            update(conn, "companies", "company_id", current["company_id"], {"group_id": group_id})
+        data["company_name"] = data.pop("name")
+        try:
+            company_id = insert(conn, "companies", {**data, "group_id": group_id, "is_active": True})
+        except IntegrityError:
+            raise ApiError("BUSINESS_NUMBER_DUPLICATE", 409) from None
+        role_id = scalar(conn, "SELECT role_id FROM roles WHERE role_code='HR_ADMIN' AND is_active=1")
+        if not role_id:
+            raise ApiError("REFERENCE_INVALID", details={"field": "HR_ADMIN role"})
+        insert(conn, "user_company_roles", {"user_id": g.actor["user_id"], "company_id": company_id, "role_id": role_id})
+        audit(conn, "COMPANY_CREATED", "company", company_id)
+        row = one(conn, f"SELECT {COMPANY_SELECT},group_id FROM companies WHERE company_id=:id", {"id": company_id})
+        return row, 201
 
 def resource_fields(resource):
     stem, _, _ = RESOURCES[resource]

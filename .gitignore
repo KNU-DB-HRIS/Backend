@@ -10,7 +10,7 @@ instance/
 dist/
 build/
 *.egg-info/
-.seed-credentials.csv
+.seed-credentials*.csv
 .DS_Store
 ai/eval/out/
 .pytest_cache/

@@ -159,11 +159,13 @@ def create_user(employee_id, username, admin, password):
 
 
 def register_commands(app):
+    from app.seed_company import db_seed_company
     from app.seed_demo import db_seed_demo
 
     app.cli.add_command(db_upgrade)
     app.cli.add_command(create_user)
     app.cli.add_command(db_seed_demo)
+    app.cli.add_command(db_seed_company)
     app.cli.add_command(ai_reader_sql)
 
 

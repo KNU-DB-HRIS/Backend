@@ -81,7 +81,7 @@ def listing():
     if status:
         conditions.append("a.status=:status")
     params = {
-        "company": g.actor["company_id"],
+        "company": g.actor["home_company_id"],
         "actor": g.actor["user_id"],
         "status": status,
     }
@@ -133,7 +133,7 @@ def create_approval():
     submit = data.pop("submit", False)
     identifiers = data.pop("approver_user_ids", [])
     with transaction() as conn:
-        lock_company(conn, g.actor["company_id"])
+        lock_company(conn, g.actor["home_company_id"])
         validate_approvers(conn, identifiers, submit)
         identifier = insert(
             conn,
@@ -163,7 +163,7 @@ def create_approval():
 @require_auth()
 def submit_approval(request_id):
     with transaction() as conn:
-        lock_company(conn, g.actor["company_id"])
+        lock_company(conn, g.actor["home_company_id"])
         row = approval_row(conn, request_id, True, False)
         if row["requester_user_id"] != g.actor["user_id"]:
             raise ApiError("NOT_REQUESTER", 403)

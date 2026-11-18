@@ -28,7 +28,7 @@ def approval_row(conn, identifier, lock=False, check_scope=True):
         "SELECT a.*,e.employee_name AS requester_name,d.department_name AS requester_department_name "
         f"{APPROVAL_JOINS} WHERE a.approval_request_id=:id AND e.company_id=:company"
         + (" FOR UPDATE" if lock else ""),
-        {"id": identifier, "company": g.actor["company_id"]},
+        {"id": identifier, "company": g.actor["home_company_id"]},
     )
     if not row:
         raise ApiError("APPROVAL_NOT_FOUND", 404)
@@ -119,7 +119,7 @@ def validate_approvers(conn, identifiers, submit):
             "AND e.employment_status IN ('ACTIVE','ON_LEAVE') AND EXISTS "
             "(SELECT 1 FROM user_roles ur JOIN roles r ON r.role_id=ur.role_id "
             "WHERE ur.user_id=u.user_id AND r.is_active=1 AND r.role_code IN ('HR_ADMIN','EMPLOYEE'))",
-            {**params, "company": g.actor["company_id"]},
+            {**params, "company": g.actor["home_company_id"]},
         )
         if eligible != len(identifiers):
             raise ApiError("APPROVERS_INVALID")

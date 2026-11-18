@@ -6,8 +6,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.db import audit, execute, insert, now, one, transaction, update
 from app.errors import ApiError
-from app.security import digest, load_actor, new_csrf, require_auth
-from app.validation import body, string, text_field
+from app.security import accessible_companies, digest, load_actor, new_csrf, require_auth
+from app.validation import body, int_field, string, text_field
 
 bp = Blueprint("auth", __name__)
 DUMMY_HASH = generate_password_hash(secrets.token_urlsafe(32))
@@ -115,11 +115,14 @@ def logout():
     return response
 
 
-@bp.get("/auth/me")
-@require_auth()
-def me():
-    with transaction() as conn:
-        csrf = new_csrf(conn, g.auth_session["session_id"])
+def session_payload(conn):
+    """/auth/me와 회사 전환 응답 공통: CSRF 재발급 + 현재 회사 + 전환 가능한 회사 목록"""
+    csrf = new_csrf(conn, g.auth_session["session_id"])
+    companies = accessible_companies(conn, g.actor["user_id"], g.actor["home_company_id"])
+    for c in companies:
+        c["is_home"] = bool(c["is_home"])
+        c["is_current"] = c["company_id"] == g.actor["company_id"]
+    current = next((c for c in companies if c["is_current"]), None)
     return {
         "user_id": g.actor["user_id"],
         "username": g.actor["username"],
@@ -131,5 +134,34 @@ def me():
         "roles": g.actor["roles"],
         "role_label": g.actor["role_label"],
         "menus": g.actor["menus"],
+        "company": {"company_id": g.actor["company_id"], "name": current["name"] if current else None},
+        "home_company_id": g.actor["home_company_id"],
+        "companies": companies,
         "csrf_token": csrf,
     }
+
+
+@bp.get("/auth/me")
+@require_auth()
+def me():
+    with transaction() as conn:
+        return session_payload(conn)
+
+
+@bp.post("/auth/active-company")
+@require_auth()
+def switch_company():
+    """현재 회사 전환. 소속 회사이거나 user_company_roles로 역할이 있는 활성 회사만 가능"""
+    data = body({"company_id": int_field()}, required=("company_id",))
+    target = data["company_id"]
+    with transaction() as conn:
+        allowed = {c["company_id"] for c in accessible_companies(conn, g.actor["user_id"], g.actor["home_company_id"])}
+        if target not in allowed:
+            raise ApiError("FORBIDDEN_SCOPE", 403)
+        stored = None if target == g.actor["home_company_id"] else target
+        update(conn, "auth_sessions", "session_id", g.auth_session["session_id"], {"active_company_id": stored})
+        g.auth_session["active_company_id"] = stored
+        g.actor = load_actor(conn, g.actor["user_id"], stored)
+        g.actor["ip"] = request.remote_addr
+        audit(conn, "COMPANY_SWITCHED", "company", g.actor["company_id"])
+        return session_payload(conn)
