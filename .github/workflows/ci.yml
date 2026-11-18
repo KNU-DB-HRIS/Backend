@@ -39,7 +39,7 @@ jobs:
           docker compose config --quiet && echo "compose config OK"
 
   ai-unit:
-    name: HR AI unit tests
+    name: HR AI and SQL policy unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -48,12 +48,15 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-          cache-dependency-path: ai/requirements.txt
+          cache-dependency-path: |
+            ai/requirements.txt
+            requirements.txt
+      # 백엔드 패키지(flask 등)도 설치해야 Flask 쪽 SQL 정책과 맞는지 보는 계약 테스트 22개가 건너뛰지 않음
       - name: Install
-        run: python -m pip install -q -r ai/requirements.txt pytest
+        run: python -m pip install -q -r ai/requirements.txt -r requirements.txt pytest
       - name: pytest
         working-directory: ai
-        run: python -m pytest -q
+        run: python -m pytest -q -rs
 
   smoke:
     name: Fresh install smoke test
