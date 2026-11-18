@@ -20,7 +20,7 @@ def create_app():
     app.register_blueprint(health_bp)
     for module in (
         "auth", "dashboard", "employees", "payroll", "organization",
-        "evaluations", "approvals", "documents", "search", "ai",
+        "evaluations", "approvals", "documents", "search", "ai", "schedule",
     ):
         app.register_blueprint(
             import_module(f"app.modules.{module}.routes").bp, url_prefix="/api/v1"

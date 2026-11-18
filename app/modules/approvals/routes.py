@@ -56,6 +56,7 @@ def summary():
         )
     return {
         "my_pending": pending,
+        "in_progress": counts.get("IN_PROGRESS", 0),
         "approved": counts.get("APPROVED", 0),
         "rejected": counts.get("REJECTED", 0),
         "drafts": counts.get("DRAFT", 0),

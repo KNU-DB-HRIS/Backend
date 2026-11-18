@@ -8,6 +8,7 @@ from app.db import all_rows, page_query, scalar, today, transaction
 from app.errors import ApiError
 from app.modules.approvals.services import APPROVAL_JOINS
 from app.modules.employees.services import employed, employment_rows
+from app.modules.schedule.services import attach_targets
 from app.security import require_auth
 from app.validation import iso_date, page_result, pagination, query_choice
 
@@ -98,7 +99,7 @@ def monthly_headcount(conn):
 
 def event_rows(conn, start, end=None, limit=None):
     sql = (
-        "SELECT event_id,title,start_at,end_at,all_day,location,target FROM hr_events "
+        "SELECT event_id,title,description,start_at,end_at,all_day,location,scope,target,created_at,updated_at FROM hr_events "
         "WHERE company_id=:company AND start_at>=:start"
     )
     if end:
@@ -231,6 +232,7 @@ def events():
         raise ApiError("VALIDATION_ERROR", details={"field": "to"})
     with transaction() as conn:
         result = page_result(event_rows(conn, start, end + timedelta(days=1)), page, size)
+        attach_targets(conn, result["items"])
     return {"from": start, "to": end, **result}
 
 

@@ -99,7 +99,7 @@ def load_actor(conn, user_id, active_company_id=None):
         "AND p.permission_code LIKE 'MENU_%'",
         role_params,
     )
-    order = ("DASHBOARD", "EMPLOYEES", "PAYROLL", "ORGANIZATION", "EVALUATION", "DOCUMENTS", "AI")
+    order = ("DASHBOARD", "EMPLOYEES", "PAYROLL", "ORGANIZATION", "EVALUATION", "DOCUMENTS", "SCHEDULE", "AI")
     allowed = {p["permission_code"].removeprefix("MENU_") for p in granted}
     actor["menus"] = [menu for menu in order if menu in allowed]
     actor["ip"] = request.remote_addr
