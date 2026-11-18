@@ -1,0 +1,85 @@
+name: CI
+
+# PR마다 자동 검사 (배포와 무관: 이 파일과 tests/는 Deploy Backend의 paths에 없음)
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: Static checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Shell scripts (syntax, LF line endings)
+        run: |
+          for f in setup/*.sh; do bash -n "$f"; done
+          bad="$(git ls-files --eol 'setup/*.sh' | grep -v 'i/lf' || true)"
+          if [ -n "$bad" ]; then printf '%s\n' "$bad"; echo "::error::setup/*.sh must use LF line endings"; exit 1; fi
+          echo "setup scripts OK: $(ls setup/*.sh | wc -l)"
+      - name: Python syntax
+        run: python -m compileall -q app ai wsgi.py tests
+      - name: Docker Compose config
+        run: |
+          cp .env.example .env
+          sed -i -e 's/^MYSQL_PASSWORD=.*/MYSQL_PASSWORD=ci-only/' -e 's/^MYSQL_ROOT_PASSWORD=.*/MYSQL_ROOT_PASSWORD=ci-only/' .env
+          docker compose config --quiet && echo "compose config OK"
+
+  ai-unit:
+    name: HR AI unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: ai/requirements.txt
+      - name: Install
+        run: python -m pip install -q -r ai/requirements.txt pytest
+      - name: pytest
+        working-directory: ai
+        run: python -m pytest -q
+
+  smoke:
+    name: Fresh install smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install (README flow, setup.sh)
+        run: bash ./setup/setup.sh
+      - name: Sample data
+        run: bash ./setup/database-data.sh > /dev/null && echo "sample data loaded"
+      - name: Containers healthy
+        run: |
+          docker compose ps --format '{{.Service}}  {{.Status}}'
+          for s in mysql backend ai; do
+            docker compose ps --status running --services | grep -qx "$s" || { echo "::error::$s is not running"; exit 1; }
+          done
+      - name: API smoke test
+        run: |
+          port="$(sed -n 's/^BACKEND_PORT=//p' .env | tail -1)"; port="${port##*:}"
+          python3 tests/ci_smoke.py "http://127.0.0.1:${port:-8080}/api/v1" .
+      - name: Logs on failure
+        if: failure()
+        run: |
+          docker compose ps -a
+          docker compose logs --tail=80 mysql backend ai migrate || true
+      - name: Tear down
+        if: always()
+        run: docker compose down -v --remove-orphans || true
