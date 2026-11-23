@@ -308,6 +308,22 @@ def run():
     s, h = admin.call("GET", f"/employees/{target}/salary-history")
     check("S11 이력에 오늘 변경이 마지막 행", s == 200 and h["items"][-1]["effective_date"] == str(TODAY) and h["items"][-1]["new_salary"] == 3500000, s)
 
+    # ---------------- 통합 검색: 사원도 구성원(사내 주소록 수준) ----------------
+    name04 = (admin.call("GET", f"/employees/{people['employee04']['employee_id']}")[1] or {}).get("name", "")  # mysql CLI 출력은 한글이 깨질 수 있어 API로
+    s, js = emp03.call("GET", "/search?q=" + urllib.parse.quote(name04))
+    items = (js or {}).get("employees", {}).get("items", [])
+    hit = next((x for x in items if x["employee_id"] == people["employee04"]["employee_id"]), None)
+    check("Q1 사원 검색: 이름으로 다른 부서 구성원 찾음", s == 200 and hit is not None, f"{s} n={len(items)}")
+    check("Q2 사원 검색 필드: 사번, 이름, 부서, 직급만(연락처·재직 상태 없음)", hit and set(hit) == {"employee_id", "employee_no", "name", "department_name", "position_name"}, sorted(hit) if hit else "")
+    s, js = emp03.call("GET", "/search?q=" + urllib.parse.quote("개발"))
+    items = (js or {}).get("employees", {}).get("items", [])
+    check("Q3 사원 검색: 부서 이름으로 찾음", s == 200 and items and all("개발" in x["name"] or "개발" in x["department_name"] for x in items), f"{s} n={len(items)}")
+    left = sql("SELECT COUNT(*) FROM employees WHERE employment_status='TERMINATED' AND employee_id IN (" + (",".join(str(x["employee_id"]) for x in items) or "0") + ")")
+    check("Q4 사원 검색에 퇴사자 없음", left == "0", left)
+    s, js = admin.call("GET", "/search?q=" + urllib.parse.quote(name04))
+    a_items = (js or {}).get("employees", {}).get("items", [])
+    check("Q5 관리자 검색은 그대로(재직 상태 포함)", s == 200 and a_items and "employment_status" in a_items[0], f"{s}")
+
 
 def cleanup():
     if made["approvals"]:
