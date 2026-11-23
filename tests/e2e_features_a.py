@@ -249,13 +249,22 @@ def run():
     mine = {(x["evaluation_id"], x["stage"]) for x in js["submitted"]}
     check("V18 완료 뒤 할 일에서 빠지고, 낸 평가에 목표/자기 평가", not any(e == e1 for e, _ in t3) and {(e1, "GOAL"), (e1, "SELF")} <= mine, f"{sorted(mine)}")
 
-    # ---------------- SAL-04 급여 변경 등록 ----------------
-    target = people["employee07"]["employee_id"]
+    # ---------------- SAL-04 급여 변경 등록 (적용일은 오늘 이전만, sp_change_salary와 같은 규칙) ----------------
+    target = None
+    for name in ("employee07", "employee08", "employee09"):
+        eid = people[name]["employee_id"]
+        if sql(f"SELECT COUNT(*) FROM salary_history WHERE employee_id={eid} AND effective_date>=CURDATE()") == "0":
+            target = eid
+            break
+    check("S0 준비: 오늘 이후 급여 이력이 없는 사원", target is not None, target)
     last_date, last_total, current_cache, hire = sql(
         f"SELECT h.effective_date,h.new_salary,IFNULL(e.current_salary,'NULL'),e.hire_date FROM salary_history h JOIN employees e ON e.employee_id=h.employee_id "
         f"WHERE h.employee_id={target} ORDER BY h.effective_date DESC,h.salary_history_id DESC LIMIT 1").split("\t")
     made["salary_restore"] = (target, current_cache)
     last_date, hire = date.fromisoformat(last_date), date.fromisoformat(hire)
+    last_parts = [int(float(x)) for x in sql(
+        f"SELECT base_salary,position_allowance,meal_allowance,other_allowance FROM salary_history WHERE employee_id={target} "
+        "ORDER BY effective_date DESC,salary_history_id DESC LIMIT 1").split("\t")]
 
     def change(client, day, base=3000000, pos=200000, meal=200000, other=100000, reason="E2E 급여 변경", **extra):
         body = {"effective_date": str(day), "base_salary": base, "position_allowance": pos, "meal_allowance": meal, "other_allowance": other, "reason": reason, **extra}
@@ -264,45 +273,40 @@ def run():
             made["salary"].append(js["salary_history_id"])
         return s, js
 
-    first = max(TODAY, last_date + timedelta(days=1))
-    s, js = change(emp03, first)
+    def view():
+        return int(float(sql(f"SELECT current_salary FROM vw_current_salaries WHERE employee_id={target}")))
+
+    s, js = change(emp03, TODAY)
     check("S1 사원은 403", s == 403, s)
     s, js = change(admin, hire - timedelta(days=1))
     check("S2 입사일 전은 422 EFFECTIVE_BEFORE_HIRE", s == 422 and code(js) == "EFFECTIVE_BEFORE_HIRE", f"{s} {code(js)}")
-    s, js = change(admin, TODAY + timedelta(days=400))
-    check("S3 1년 넘게 뒤는 422 EFFECTIVE_TOO_FAR", s == 422 and code(js) == "EFFECTIVE_TOO_FAR", f"{s} {code(js)}")
+    s1, j1 = change(admin, TODAY + timedelta(days=1))
+    s2, j2 = change(admin, TODAY + timedelta(days=30))
+    check("S3 미래 적용일(내일, 30일 뒤)은 422 FUTURE_DATE_NOT_SUPPORTED", s1 == s2 == 422 and code(j1) == code(j2) == "FUTURE_DATE_NOT_SUPPORTED", f"{s1} {s2} {code(j1)}")
     s, js = change(admin, last_date)
     check("S4 같은 적용일은 409 EFFECTIVE_DATE_TAKEN", s == 409 and code(js) == "EFFECTIVE_DATE_TAKEN", f"{s} {code(js)}")
     if last_date - timedelta(days=1) >= hire:
         s, js = change(admin, last_date - timedelta(days=1))
         check("S5 최신보다 앞선 적용일은 409 EFFECTIVE_DATE_NOT_LATEST", s == 409 and code(js) == "EFFECTIVE_DATE_NOT_LATEST", f"{s} {code(js)}")
-    s1, _ = change(admin, first, base=-1)
-    s2, _ = change(admin, first, base=True)
-    s3, j3 = admin.call("POST", f"/employees/{target}/salary-history", {"effective_date": str(first), "base_salary": 1, "position_allowance": 0, "meal_allowance": 0, "other_allowance": 0})
-    s4, _ = change(admin, first, new_salary=999)
+    s1, _ = change(admin, TODAY, base=-1)
+    s2, _ = change(admin, TODAY, base=True)
+    s3, _ = admin.call("POST", f"/employees/{target}/salary-history", {"effective_date": str(TODAY), "base_salary": 1, "position_allowance": 0, "meal_allowance": 0, "other_allowance": 0})
+    s4, _ = change(admin, TODAY, new_salary=999)
     check("S6 음수, true, 사유 누락, 총액 직접 입력은 422", (s1, s2, s3, s4) == (422, 422, 422, 422), f"{s1} {s2} {s3} {s4}")
-    s, js = change(admin, first)
-    check("S7 첫 변경: 총액은 네 항목 합, 이전 급여 = 직전 행", s == 201 and js["new_salary"] == 3500000 and js["previous_salary"] == int(float(last_total))
-          and js["change_amount"] == 3500000 - int(float(last_total)) and js["components_status"] == "COMPLETE", f"{s} {js and js.get('new_salary')}")
-    now_effective = first <= TODAY
+    s, js = change(admin, TODAY, *last_parts, reason="같은 금액")
+    check("S7 네 항목이 직전과 같으면 422 NO_CHANGE", s == 422 and code(js) == "NO_CHANGE", f"{s} {code(js)}")
+    s, js = change(admin, TODAY)
+    check("S8 오늘 적용: 총액은 네 항목 합, 이전 급여 = 직전 행, is_current", s == 201 and js["new_salary"] == 3500000 and js["previous_salary"] == int(float(last_total))
+          and js["change_amount"] == 3500000 - int(float(last_total)) and js["components_status"] == "COMPLETE" and js["is_current"], f"{s} {js and js.get('new_salary')}")
     s, cur = admin.call("GET", f"/employees/{target}/salary")
-    if now_effective:
-        check("S8 오늘 발효 → 현재 급여에 바로 반영", js["is_current"] and cur["total"] == 3500000, f"{cur and cur.get('total')}")
-    future = first + timedelta(days=30)
-    s, js = change(admin, future, base=3200000, reason="E2E 예정 인상")
-    s2, cur2 = admin.call("GET", f"/employees/{target}/salary")
-    s3, lst = admin.call("GET", "/salaries?size=100")
+    s2, lst = admin.call("GET", "/salaries?size=100")
     listed = next((x["current_salary"] for x in (lst or {}).get("items", []) if x["employee_id"] == target), None)
-    check("S9 예정 변경: is_current=false, 현재 급여와 목록은 그대로", s == 201 and not js["is_current"] and cur2["total"] == cur["total"] and listed == cur["total"],
-          f"{s} current={cur2 and cur2.get('total')} listed={listed}")
-    s, js = change(admin, future - timedelta(days=10), base=3100000, reason="E2E 중간 끼워 넣기")
-    check("S9b 예정 변경보다 앞선 적용일은 409 EFFECTIVE_DATE_NOT_LATEST", s == 409 and code(js) == "EFFECTIVE_DATE_NOT_LATEST", f"{s} {code(js)}")
-    s, h1 = admin.call("GET", f"/employees/{target}/salary-history")
-    s2, h2 = admin.call("GET", f"/employees/{target}/salary-history?to={TODAY + timedelta(days=366)}")
-    check("S10 이력: 기본(오늘까지)은 예정 제외, to를 넓히면 포함", s == 200 and all(x["effective_date"] <= str(TODAY) for x in h1["items"])
-          and any(x["effective_date"] == str(future) for x in h2["items"]), f"{len(h1['items'])} → {len(h2['items'])}")
-    s, js = change(admin, future + timedelta(days=1), base=3200000, reason="같은 금액")
-    check("S11 네 항목이 직전과 같으면 422 NO_CHANGE", s == 422 and code(js) == "NO_CHANGE", f"{s} {code(js)}")
+    check("S9 현재 급여 API, 목록, 보고 뷰(vw_current_salaries)가 모두 같은 값", cur["total"] == listed == view() == 3500000,
+          f"api={cur and cur.get('total')} list={listed} view={view()}")
+    s, js = change(admin, TODAY, base=3100000)
+    check("S10 같은 날 두 번째 변경은 409 EFFECTIVE_DATE_TAKEN", s == 409 and code(js) == "EFFECTIVE_DATE_TAKEN", f"{s} {code(js)}")
+    s, h = admin.call("GET", f"/employees/{target}/salary-history")
+    check("S11 이력에 오늘 변경이 마지막 행", s == 200 and h["items"][-1]["effective_date"] == str(TODAY) and h["items"][-1]["new_salary"] == 3500000, s)
 
 
 def cleanup():

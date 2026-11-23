@@ -1,5 +1,3 @@
-from datetime import timedelta
-
 from flask import Blueprint, g, request
 
 from app.db import all_rows, audit, insert, one, page_query, today, transaction, update
@@ -12,7 +10,7 @@ bp = Blueprint("payroll", __name__)
 
 COMPONENTS = "components_status,base_salary,position_allowance,meal_allowance,other_allowance"
 COMPONENT_KEYS = ("base_salary", "position_allowance", "meal_allowance", "other_allowance")
-# 현재 급여 = 적용일이 오늘 이전인 최신 행 (미래 적용일로 등록한 예정 변경은 그날부터 반영)
+# 현재 급여 = 적용일이 오늘 이전인 최신 행 (변경 등록은 오늘 이전 적용일만 받지만, 이력에 미래 행이 있어도 미리 반영되지 않게)
 CURRENT = "effective_date<=CURDATE()"
 
 
@@ -80,7 +78,8 @@ def history(employee_id):
 @require_auth(admin=True)
 def change_salary(employee_id):
     """SAL-04 급여 변경 등록. 총액은 받지 않고 네 항목 합으로 계산(항상 COMPLETE).
-    적용일은 기존 최신 적용일보다 뒤여야 함(중간에 끼우면 뒤 행의 이전 급여가 틀어짐), 최대 1년 뒤까지"""
+    적용일은 기존 최신 적용일보다 뒤 + 오늘 이전(sp_change_salary와 같은 규칙: 미래 예약은 범위 제외).
+    등록 즉시 현재 급여가 되므로 employees.current_salary(vw_current_salaries)와 이력이 항상 같음"""
     money = int_field(0, 100000000)
     data = body(
         {
@@ -97,8 +96,8 @@ def change_salary(employee_id):
             raise ApiError("EMPLOYEE_TERMINATED", 409)
         if effective < employee["hire_date"]:
             raise ApiError("EFFECTIVE_BEFORE_HIRE")
-        if effective > today() + timedelta(days=366):
-            raise ApiError("EFFECTIVE_TOO_FAR")
+        if effective > today():
+            raise ApiError("FUTURE_DATE_NOT_SUPPORTED")
         last = one(
             conn,
             f"SELECT new_salary,effective_date,{COMPONENTS} FROM salary_history WHERE employee_id=:id "
@@ -130,9 +129,7 @@ def change_salary(employee_id):
                 "components_status": "COMPLETE",
             },
         )
-        is_current = effective <= today()
-        if is_current:
-            update(conn, "employees", "employee_id", employee_id, {"current_salary": total})
+        update(conn, "employees", "employee_id", employee_id, {"current_salary": total})
         audit(conn, "SALARY_CHANGED", "salary_history", identifier)
     return {
         "salary_history_id": identifier,
@@ -143,6 +140,6 @@ def change_salary(employee_id):
         "change_amount": None if previous is None else total - previous,
         "components_status": "COMPLETE",
         "reason": data["reason"],
-        "is_current": is_current,
+        "is_current": True,
         **{key: data[key] for key in COMPONENT_KEYS},
     }, 201
