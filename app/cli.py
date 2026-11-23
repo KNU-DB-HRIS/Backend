@@ -1,9 +1,12 @@
 import hashlib
+import json
+import sys
 from pathlib import Path
 
 import click
 from flask import current_app
 from flask.cli import with_appcontext
+from werkzeug.security import generate_password_hash
 
 from app.db import all_rows, execute, insert, one, scalar, transaction
 from app.security import create_account
@@ -158,12 +161,59 @@ def create_user(employee_id, username, admin, password):
         click.echo(f"Created user {user_id}")
 
 
+def set_passwords(passwords):
+    """{username: password} 비밀번호를 한 트랜잭션으로 바꾸고 그 계정의 로그인 세션을 모두 끊는다. 하나라도 없으면 전부 취소."""
+    if not isinstance(passwords, dict) or not passwords or any(
+        not isinstance(name, str) or not isinstance(password, str)
+        or not 1 <= len(name) <= 50 or not 8 <= len(password) <= 128
+        for name, password in passwords.items()
+    ):
+        raise click.ClickException("Expected {username: password}; username 1-50, password 8-128 characters")
+    with transaction() as conn:
+        ids = {}
+        for name in passwords:
+            row = one(conn, "SELECT user_id FROM users WHERE username=:name FOR UPDATE", {"name": name})
+            if not row:
+                raise click.ClickException(f"User not found: {name}. No passwords were changed.")
+            ids[name] = row["user_id"]
+        for name, password in passwords.items():
+            execute(conn, "UPDATE users SET password_hash=:hash WHERE user_id=:id",
+                    {"hash": generate_password_hash(password), "id": ids[name]})
+            execute(conn, "UPDATE auth_sessions SET revoked_at=CURRENT_TIMESTAMP(6) "
+                    "WHERE user_id=:id AND revoked_at IS NULL", {"id": ids[name]})
+    return list(passwords)
+
+
+@click.command("reset-password")
+@click.option("--username", required=True)
+@click.password_option(envvar="HRIS_USER_PASSWORD")
+@with_appcontext
+def reset_password(username, password):
+    """계정 하나의 비밀번호 재설정 (비밀번호는 입력창 또는 HRIS_USER_PASSWORD). 기존 로그인 세션은 끊김."""
+    set_passwords({username: password})
+    click.echo(f"Password reset: {username} (existing sessions signed out)")
+
+
+@click.command("reset-passwords")
+@with_appcontext
+def reset_passwords():
+    """표준 입력의 JSON {username: password}로 여러 계정 비밀번호를 한 번에 재설정 (setup/reset-demo-passwords.sh가 사용)."""
+    try:
+        passwords = json.load(sys.stdin)
+    except ValueError as error:
+        raise click.ClickException("Expected a JSON object on stdin") from error
+    names = set_passwords(passwords)
+    click.echo(f"Passwords reset: {', '.join(names)} (existing sessions signed out)")
+
+
 def register_commands(app):
     from app.seed_company import db_seed_company
     from app.seed_demo import db_seed_demo
 
     app.cli.add_command(db_upgrade)
     app.cli.add_command(create_user)
+    app.cli.add_command(reset_password)
+    app.cli.add_command(reset_passwords)
     app.cli.add_command(db_seed_demo)
     app.cli.add_command(db_seed_company)
     app.cli.add_command(ai_reader_sql)

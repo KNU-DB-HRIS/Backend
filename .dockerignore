@@ -7,3 +7,4 @@
 instance
 *.log
 .seed-credentials*.csv
+.seed-credentials.new.*
