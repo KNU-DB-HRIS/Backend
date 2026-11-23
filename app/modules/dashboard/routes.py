@@ -4,26 +4,15 @@ from datetime import date, timedelta
 from flask import Blueprint, g, request
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.db import all_rows, page_query, scalar, today, transaction
+from app.db import all_rows, scalar, today, transaction
 from app.errors import ApiError
 from app.modules.approvals.services import APPROVAL_JOINS
 from app.modules.employees.services import employed, employment_rows
 from app.modules.schedule.services import attach_targets
 from app.security import require_auth
-from app.validation import iso_date, page_result, pagination, query_choice
+from app.validation import iso_date, page_result, pagination
 
 bp = Blueprint("dashboard", __name__)
-
-CATEGORY_SQL = (
-    "CASE a.resource_type WHEN 'employee' THEN '직원 관리' WHEN 'approval' THEN '인사 관리' "
-    "WHEN 'payroll_statement' THEN '급여 관리' ELSE '기타' END"
-)
-ACTIVITY_FROM = (
-    "FROM audit_logs a LEFT JOIN users u ON u.user_id=a.user_id "
-    "LEFT JOIN employees e ON e.employee_id=u.employee_id "
-    "WHERE COALESCE(a.company_id,e.company_id)=:company"
-)
-
 
 def members(conn):
     rows = employment_rows(conn)
@@ -43,37 +32,6 @@ def members(conn):
 class Unavailable(Exception):
     def __init__(self, reason):
         self.reason = reason
-
-
-def attendance_today(conn):
-    day = today()
-    if day.weekday() >= 5:
-        raise Unavailable("NON_WORKDAY")
-    employees = employment_rows(conn)
-    active = {
-        row["employee_id"]
-        for row in employees
-        if employed(row, day) and row["employment_status"] == "ACTIVE"
-    }
-    records = all_rows(
-        conn,
-        "SELECT a.employee_id,a.status FROM attendance_records a "
-        "JOIN employees e ON e.employee_id=a.employee_id WHERE e.company_id=:company AND a.work_date=:day",
-        {"company": g.actor["company_id"], "day": day},
-    )
-    records = [record for record in records if record["employee_id"] in active]
-    if not records:
-        raise Unavailable("NO_DATA")
-    total = sum(employed(row, day) for row in employees)
-    present = sum(row["status"] == "PRESENT" for row in records)
-    return {
-        "present": present,
-        "members_total": total,
-        "present_ratio_of_members": round(present / total, 4) if total else None,
-        "on_leave": sum(row["status"] == "LEAVE" for row in records),
-        "absent": sum(row["status"] == "ABSENT" for row in records),
-        "not_checked_in": len(active) - len(records),
-    }
 
 
 def monthly_headcount(conn):
@@ -122,67 +80,6 @@ def upcoming(conn):
     return rows
 
 
-def recent(conn):
-    return all_rows(
-        conn,
-        "SELECT a.action_type AS action," + CATEGORY_SQL + " AS category,COUNT(*) AS count,"
-        "MAX(a.created_at) AS latest_at "
-        + ACTIVITY_FROM
-        + " GROUP BY DATE(a.created_at),a.action_type,a.resource_type ORDER BY latest_at DESC,action LIMIT 3",
-        {"company": g.actor["company_id"]},
-    )
-
-
-def month_summary(conn):
-    day = today()
-    start = day.replace(day=1)
-    rows = employment_rows(conn)
-    data = {
-        "new_hires": sum(start <= row["hire_date"] <= day for row in rows),
-        "transfers": scalar(
-            conn,
-            "SELECT COUNT(*) FROM assignment_history h JOIN employees e ON e.employee_id=h.employee_id "
-            "WHERE e.company_id=:company AND h.action_type='TRANSFER' "
-            "AND COALESCE(h.effective_date,h.action_date) BETWEEN :start AND :end",
-            {"company": g.actor["company_id"], "start": start, "end": day},
-        ),
-        "attendance_rate": None,
-        "attendance_missing_records": None,
-        "attendance_status": "SOURCE_ERROR",
-    }
-    try:
-        records = all_rows(
-            conn,
-            "SELECT a.employee_id,a.work_date,a.status FROM attendance_records a "
-            "JOIN employees e ON e.employee_id=a.employee_id WHERE e.company_id=:company "
-            "AND a.work_date>=:start AND a.work_date<:end",
-            {"company": g.actor["company_id"], "start": start, "end": day},
-        )
-        record_map = {(row["employee_id"], row["work_date"]): row["status"] for row in records}
-        missing = present = absent = expected = 0
-        current = start
-        while current < day:
-            if current.weekday() < 5:
-                for employee in rows:
-                    if employee["employment_status"] != "ACTIVE" or not employed(employee, current):
-                        continue
-                    expected += 1
-                    value = record_map.get((employee["employee_id"], current))
-                    missing += value is None
-                    present += value == "PRESENT"
-                    absent += value == "ABSENT"
-            current += timedelta(days=1)
-        data["attendance_missing_records"] = missing
-        data["attendance_status"] = (
-            "INCOMPLETE" if missing else "OK" if expected and present + absent else "NO_DATA"
-        )
-        if not missing and present + absent:
-            data["attendance_rate"] = present / (present + absent)
-    except SQLAlchemyError:
-        pass
-    return data
-
-
 def widget(function):
     try:
         with transaction() as conn:
@@ -201,7 +98,6 @@ def dashboard():
         raise ApiError("VALIDATION_ERROR", details={"field": "query"})
     functions = {
         "members": members,
-        "attendance_today": attendance_today,
         "pending_approvals": lambda conn: {
             "count": scalar(
                 conn,
@@ -211,8 +107,6 @@ def dashboard():
         },
         "monthly_headcount": monthly_headcount,
         "upcoming_events": upcoming,
-        "recent_activities": recent,
-        "month_summary": month_summary,
     }
     return {
         "date": today(),
@@ -236,25 +130,3 @@ def events():
     return {"from": start, "to": end, **result}
 
 
-@bp.get("/activities")
-@require_auth(admin=True)
-def activities():
-    page, size = pagination()
-    category = query_choice("category", ("직원 관리", "인사 관리", "급여 관리", "기타"))
-    condition = ACTIVITY_FROM + (f" AND ({CATEGORY_SQL})=:category" if category else "")
-    params = {
-        "company": g.actor["company_id"],
-        "category": category,
-    }
-    with transaction() as conn:
-        return page_query(
-            conn,
-            "a.audit_log_id AS audit_id,a.action_type AS action,"
-            + CATEGORY_SQL
-            + " AS category,a.resource_type,a.resource_id,e.employee_name AS actor_name,a.created_at AS at",
-            condition,
-            params,
-            "a.created_at DESC,a.audit_log_id DESC",
-            page,
-            size,
-        )
