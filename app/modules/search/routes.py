@@ -35,6 +35,21 @@ def search():
                 + " ORDER BY e.employee_no,e.employee_id LIMIT :limit",
                 params,
             )
+        else:
+            # 사원: 사내 주소록 수준(DB 뷰 vw_employee_directory). 이름 또는 부서로 찾고, 재직·휴직자만, 연락처·상태는 주지 않음
+            condition = (
+                "FROM vw_employee_directory v WHERE v.company_id=:company "
+                "AND v.employment_status IN ('ACTIVE','ON_LEAVE') "
+                "AND (v.employee_name LIKE :q ESCAPE '!' OR v.department_name LIKE :q ESCAPE '!')"
+            )
+            employees["total"] = scalar(conn, "SELECT COUNT(*) " + condition, params)
+            employees["items"] = all_rows(
+                conn,
+                "SELECT v.employee_id,v.employee_no,v.employee_name AS name,v.department_name,v.position_name "
+                + condition
+                + " ORDER BY v.employee_name,v.employee_id LIMIT :limit",
+                params,
+            )
         condition = (
             f"{APPROVAL_JOINS} WHERE e.company_id=:company "
             "AND a.title LIKE :q ESCAPE '!' AND " + visible_condition()
