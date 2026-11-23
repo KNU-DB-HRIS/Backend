@@ -309,7 +309,7 @@ def run():
     check("S11 이력에 오늘 변경이 마지막 행", s == 200 and h["items"][-1]["effective_date"] == str(TODAY) and h["items"][-1]["new_salary"] == 3500000, s)
 
     # ---------------- 통합 검색: 사원도 구성원(사내 주소록 수준) ----------------
-    name04 = sql(f"SELECT employee_name FROM employees WHERE employee_id={people['employee04']['employee_id']}")
+    name04 = (admin.call("GET", f"/employees/{people['employee04']['employee_id']}")[1] or {}).get("name", "")  # mysql CLI 출력은 한글이 깨질 수 있어 API로
     s, js = emp03.call("GET", "/search?q=" + urllib.parse.quote(name04))
     items = (js or {}).get("employees", {}).get("items", [])
     hit = next((x for x in items if x["employee_id"] == people["employee04"]["employee_id"]), None)
