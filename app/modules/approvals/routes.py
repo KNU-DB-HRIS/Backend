@@ -27,12 +27,47 @@ from app.validation import (
     body,
     boolean,
     choice_field,
+    like,
     pagination,
     query_choice,
+    query_int,
+    query_text,
     text_field,
 )
 
 bp = Blueprint("approvals", __name__)
+
+REQUEST_TYPES = ("LEAVE", "EXPENSE", "COOPERATION", "BUSINESS_TRIP", "GENERAL")
+APPROVER_SOURCE = (
+    "FROM users u JOIN employees e ON e.employee_id=u.employee_id "
+    "JOIN departments d ON d.department_id=e.department_id JOIN positions p ON p.position_id=e.position_id "
+    "LEFT JOIN job_titles t ON t.job_title_id=e.job_title_id "
+    "WHERE e.company_id=:company AND u.status='ACTIVE' AND e.employment_status='ACTIVE' AND u.user_id<>:actor "
+    "AND EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.role_id=ur.role_id WHERE ur.user_id=u.user_id "
+    "AND r.is_active=1 AND r.role_code IN ('HR_ADMIN','EMPLOYEE'))"
+)
+
+
+@bp.get("/users/approvers")
+@require_auth()
+def approvers():
+    """USER-01 결재자 후보. 결재선 검사와 같은 조건이라 목록에서 고른 사람은 APPROVERS_INVALID가 나지 않음"""
+    q = query_text()
+    limit = query_int("limit", 20, maximum=50)
+    params = {"company": g.actor["home_company_id"], "actor": g.actor["user_id"], "limit": limit}
+    source = APPROVER_SOURCE
+    if q:
+        source += " AND (e.employee_name LIKE :q ESCAPE '!' OR d.department_name LIKE :q ESCAPE '!')"
+        params["q"] = like(q)
+    with transaction() as conn:
+        total = scalar(conn, f"SELECT COUNT(*) {source}", params)
+        items = all_rows(
+            conn,
+            "SELECT u.user_id,e.employee_name AS name,d.department_name,p.position_name,t.job_title_name "
+            f"{source} ORDER BY d.department_name,p.position_level DESC,e.employee_name,u.user_id LIMIT :limit",
+            params,
+        )
+    return {"items": items, "total": total}
 
 
 @bp.get("/approvals/summary")
@@ -121,9 +156,7 @@ def detail(request_id):
 def create_approval():
     data = body(
         {
-            "request_type": choice_field(
-                "LEAVE", "EXPENSE", "COOPERATION", "BUSINESS_TRIP", "GENERAL"
-            ),
+            "request_type": choice_field(*REQUEST_TYPES),
             "title": text_field(100),
             "content": text_field(500, True),
             "submit": boolean,
@@ -186,6 +219,67 @@ def submit_approval(request_id):
         )
         audit(conn, "APPROVAL_SUBMITTED", "approval", request_id)
         return approval_detail(conn, request_id)
+
+
+def own_draft(conn, request_id):
+    """임시 저장 문서를 잠그고 기안자 본인 + DRAFT인지 확인 (APR-08, APR-09)"""
+    row = approval_row(conn, request_id, True, False)
+    if row["requester_user_id"] != g.actor["user_id"]:
+        raise ApiError("NOT_REQUESTER", 403)
+    if row["status"] != "DRAFT":
+        raise ApiError("INVALID_STATE", 409)
+    return row
+
+
+@bp.patch("/approvals/<int:request_id>")
+@require_auth()
+def update_draft(request_id):
+    """APR-08 임시 저장 문서 수정. 보낸 필드만 바꾸고, approver_user_ids를 주면 결재선을 통째로 교체(0~5명)"""
+    data = body(
+        {
+            "request_type": choice_field(*REQUEST_TYPES),
+            "title": text_field(100),
+            "content": text_field(500, True),
+            "approver_user_ids": lambda value, field: value,
+        }
+    )
+    if not data:
+        raise ApiError("VALIDATION_ERROR", details={"field": "body"})
+    identifiers = data.pop("approver_user_ids", None)
+    with transaction() as conn:
+        lock_company(conn, g.actor["home_company_id"])
+        own_draft(conn, request_id)
+        if identifiers is not None:
+            validate_approvers(conn, identifiers, False)
+        update(conn, "approval_requests", "approval_request_id", request_id, data)
+        if identifiers is not None:
+            execute(conn, "DELETE FROM approval_steps WHERE approval_request_id=:id", {"id": request_id})
+            for index, approver in enumerate(identifiers, 1):
+                insert(
+                    conn,
+                    "approval_steps",
+                    {
+                        "approval_request_id": request_id,
+                        "step_order": index,
+                        "approver_user_id": approver,
+                        "status": "WAITING",
+                    },
+                )
+        audit(conn, "APPROVAL_DRAFT_UPDATED", "approval", request_id)
+        return approval_detail(conn, request_id)
+
+
+@bp.delete("/approvals/<int:request_id>")
+@require_auth()
+def delete_draft(request_id):
+    """APR-09 임시 저장 문서 삭제: 단계 삭제 → 문서 삭제 → 감사 로그, 한 트랜잭션"""
+    with transaction() as conn:
+        lock_company(conn, g.actor["home_company_id"])
+        own_draft(conn, request_id)
+        execute(conn, "DELETE FROM approval_steps WHERE approval_request_id=:id", {"id": request_id})
+        execute(conn, "DELETE FROM approval_requests WHERE approval_request_id=:id", {"id": request_id})
+        audit(conn, "APPROVAL_DRAFT_DELETED", "approval", request_id)
+    return "", 204
 
 
 def process(request_id, reject=False):
