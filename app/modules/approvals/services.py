@@ -2,7 +2,7 @@ from flask import g
 
 from app.db import all_rows, one, scalar
 from app.errors import ApiError
-from app.security import is_admin
+from app.security import has_permission
 
 APPROVAL_JOINS = (
     "FROM approval_requests a JOIN users u ON u.user_id=a.requester_user_id "
@@ -13,7 +13,7 @@ APPROVAL_JOINS = (
 
 def visible_condition(alias="a"):
     base = f"({alias}.status<>'DRAFT' OR {alias}.requester_user_id=:actor)"
-    if not is_admin():
+    if not has_permission("APPROVAL_READ_ALL"):
         base += (
             f" AND ({alias}.requester_user_id=:actor OR EXISTS "
             f"(SELECT 1 FROM approval_steps vs WHERE vs.approval_request_id={alias}.approval_request_id "
@@ -37,7 +37,7 @@ def approval_row(conn, identifier, lock=False, check_scope=True):
         if row["status"] == "DRAFT" and not owner:
             raise ApiError("FORBIDDEN_SCOPE", 403)
         if (
-            not is_admin()
+            not has_permission("APPROVAL_READ_ALL")
             and not owner
             and not scalar(
                 conn,

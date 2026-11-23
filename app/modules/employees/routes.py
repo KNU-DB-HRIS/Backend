@@ -4,6 +4,7 @@ from flask import Blueprint, g
 from sqlalchemy.exc import IntegrityError
 
 from app.db import (
+    all_rows,
     audit,
     execute,
     insert,
@@ -25,6 +26,7 @@ from app.modules.employees.services import (
     employee_row,
 )
 from app.modules.organization.services import validate_reference
+from app.permissions import ROLE_CODES
 from app.security import create_account, require_auth, scope_employee
 from app.validation import (
     body,
@@ -66,7 +68,7 @@ CREATE_FIELDS = {
 
 
 @bp.get("/employees")
-@require_auth(admin=True)
+@require_auth(permission="EMPLOYEE_READ")
 def listing():
     page, size = pagination()
     condition, params = employee_filter()
@@ -93,13 +95,13 @@ def listing():
 @bp.get("/employees/<int:employee_id>")
 @require_auth()
 def detail(employee_id):
-    scope_employee(employee_id)
+    scope_employee(employee_id, "EMPLOYEE_READ")
     with transaction() as conn:
         return employee_detail(conn, employee_id)
 
 
 @bp.post("/employees")
-@require_auth(admin=True)
+@require_auth(permission="EMPLOYEE_CREATE")
 def create_employee():
     data = body(
         CREATE_FIELDS,
@@ -190,7 +192,7 @@ def create_employee():
 
 
 @bp.patch("/employees/<int:employee_id>")
-@require_auth(admin=True)
+@require_auth(permission="EMPLOYEE_UPDATE")
 def edit_employee(employee_id):
     fields = {
         key: CREATE_FIELDS[key]
@@ -212,7 +214,7 @@ def edit_employee(employee_id):
 
 
 @bp.get("/employees/<int:employee_id>/assignments")
-@require_auth(admin=True)
+@require_auth(permission="EMPLOYEE_READ")
 def history(employee_id):
     page, size = pagination()
     with transaction() as conn:
@@ -221,7 +223,7 @@ def history(employee_id):
 
 
 @bp.post("/employees/<int:employee_id>/assignments")
-@require_auth(admin=True)
+@require_auth(permission="EMPLOYEE_ASSIGN")
 def assign(employee_id):
     fields = {
         "action_type": text_field(20),
@@ -289,7 +291,7 @@ def assign(employee_id):
 
 
 @bp.post("/employees/<int:employee_id>/termination")
-@require_auth(admin=True)
+@require_auth(permission="EMPLOYEE_TERMINATE")
 def terminate(employee_id):
     data = body(
         {"termination_date": date_field(), "reason": text_field(300)},
@@ -355,7 +357,7 @@ def terminate(employee_id):
 
 
 @bp.delete("/employees/<int:employee_id>")
-@require_auth(admin=True)
+@require_auth(permission="EMPLOYEE_DELETE")
 def delete_employee(employee_id):
     if employee_id == g.actor["employee_id"]:
         raise ApiError("CANNOT_DELETE_SELF", 409)
@@ -395,3 +397,51 @@ def delete_employee(employee_id):
             raise ApiError("EMPLOYEE_HAS_HISTORY", 409) from None
         audit(conn, "EMPLOYEE_DELETED", "employee", employee_id)
     return "", 204
+
+
+@bp.put("/employees/<int:employee_id>/role")
+@require_auth(permission="ROLE_MANAGE")
+def change_role(employee_id):
+    """계정 역할 변경 (HR 관리자 / 인사 담당자 / 인사 사원 / 사원). 소속 회사 역할(user_roles)을 하나로 바꿈"""
+    data = body({"role_code": choice_field(*ROLE_CODES)}, ("role_code",))
+    with transaction() as conn:
+        lock_company(conn, g.actor["company_id"])
+        employee = employee_row(conn, employee_id, True)
+        if employee["employment_status"] == "TERMINATED":
+            raise ApiError("EMPLOYEE_TERMINATED", 409)
+        account = one(
+            conn,
+            "SELECT user_id,username FROM users WHERE employee_id=:id ORDER BY user_id LIMIT 1 FOR UPDATE",
+            {"id": employee_id},
+        )
+        if not account:
+            raise ApiError("ACCOUNT_NOT_FOUND", 404)
+        if account["user_id"] == g.actor["user_id"]:
+            raise ApiError("SELF_ROLE_CHANGE", 409)
+        role = one(
+            conn,
+            "SELECT role_id,role_code,role_name FROM roles WHERE role_code=:code AND is_active=1",
+            {"code": data["role_code"]},
+        )
+        if not role:
+            raise ApiError("ROLE_NOT_AVAILABLE", 409)
+        current = {
+            r["role_code"]
+            for r in all_rows(
+                conn,
+                "SELECT r.role_code FROM user_roles ur JOIN roles r ON r.role_id=ur.role_id WHERE ur.user_id=:user",
+                {"user": account["user_id"]},
+            )
+        }
+        if current == {role["role_code"]}:
+            raise ApiError("NO_CHANGE")
+        execute(conn, "DELETE FROM user_roles WHERE user_id=:user", {"user": account["user_id"]})
+        insert(conn, "user_roles", {"user_id": account["user_id"], "role_id": role["role_id"]})
+        audit(conn, "ROLE_CHANGED", "user", account["user_id"])
+    return {
+        "employee_id": employee_id,
+        "user_id": account["user_id"],
+        "username": account["username"],
+        "role_code": role["role_code"],
+        "role_name": role["role_name"],
+    }

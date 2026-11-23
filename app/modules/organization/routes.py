@@ -57,7 +57,7 @@ COMPANY_SELECT = (
 
 
 @bp.get("/company")
-@require_auth(admin=True)
+@require_auth(permission="ORG_READ")
 def company():
     with transaction() as conn:
         return one(
@@ -68,7 +68,7 @@ def company():
 
 
 @bp.patch("/company")
-@require_auth(admin=True)
+@require_auth(permission="ORG_MANAGE")
 def edit_company():
     data = body(COMPANY_FIELDS)
     if "business_number" in data and not re.fullmatch(
@@ -111,7 +111,7 @@ def validate_company_fields(data):
 
 
 @bp.get("/companies")
-@require_auth(admin=True)
+@require_auth(permission="COMPANY_MANAGE")
 def companies():
     """계열사 목록: 내가 접근할 수 있는 회사(소속 + 역할을 받은 회사)와 인원"""
     with transaction() as conn:
@@ -136,7 +136,7 @@ def companies():
 
 
 @bp.post("/companies")
-@require_auth(admin=True)
+@require_auth(permission="COMPANY_MANAGE")
 def create_company():
     """계열사 생성: 현재 회사와 같은 그룹으로 만들고, 만든 사람에게 그 회사의 HR_ADMIN을 부여"""
     fields = {k: v for k, v in COMPANY_FIELDS.items() if k != "logo_url"}
@@ -229,7 +229,7 @@ def register_resource(resource):
     stem, code, _ = RESOURCES[resource]
     table = resource.replace("-", "_")
 
-    @require_auth(admin=True)
+    @require_auth(permission="ORG_READ")
     def listing():
         q, active_only = query_text(), query_bool("active_only")
         with transaction() as conn:
@@ -246,7 +246,7 @@ def register_resource(resource):
         ]
         return {"items": rows, "total": len(rows)}
 
-    @require_auth(admin=True)
+    @require_auth(permission="ORG_READ")
     def detail(identifier):
         with transaction() as conn:
             get_resource(conn, resource, identifier)
@@ -254,7 +254,7 @@ def register_resource(resource):
                 r for r in organization_rows(conn, resource) if r[f"{stem}_id"] == identifier
             )
 
-    @require_auth(admin=True)
+    @require_auth(permission="ORG_MANAGE")
     def save(identifier=None):
         fields, required = resource_fields(resource)
         readonly = ("headcount", "direct_headcount", "parent_department_name", "manager_name")
@@ -281,7 +281,7 @@ def register_resource(resource):
             )
         return result, 200 if current else 201
 
-    @require_auth(admin=True)
+    @require_auth(permission="ORG_MANAGE")
     def deactivate(identifier):
         with transaction() as conn:
             lock_company(conn, g.actor["company_id"])
@@ -319,7 +319,7 @@ for resource_name in RESOURCES:
 
 
 @bp.get("/organization/headcounts")
-@require_auth(admin=True)
+@require_auth(permission="ORG_READ")
 def headcounts():
     page, size = pagination()
     q = query_text()
@@ -376,7 +376,7 @@ def headcounts():
 
 
 @bp.post("/company/logo")
-@require_auth(admin=True)
+@require_auth(permission="ORG_MANAGE")
 def upload_logo():
     upload = request.files.get("file")
     if upload is None:
@@ -461,7 +461,7 @@ def upload_logo():
 
 
 @bp.get("/company/logos/<identifier>")
-@require_auth(admin=True)
+@require_auth(permission="ORG_READ")
 def logo_file(identifier):
     with transaction() as conn:
         logo = one(

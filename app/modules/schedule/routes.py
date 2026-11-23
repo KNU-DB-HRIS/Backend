@@ -125,7 +125,7 @@ def check_range(start, end):
 
 
 @bp.post("/events")
-@require_auth(admin=True)
+@require_auth(permission="EVENT_MANAGE")
 def create_event():
     data = body(FIELDS, required=("title", "start_at"))
     scope = data.pop("scope", "COMPANY")
@@ -145,7 +145,7 @@ def create_event():
 
 
 @bp.patch("/events/<int:event_id>")
-@require_auth(admin=True)
+@require_auth(permission="EVENT_MANAGE")
 def edit_event(event_id):
     data = body(FIELDS)
     with transaction() as conn:
@@ -172,7 +172,7 @@ def edit_event(event_id):
 
 
 @bp.delete("/events/<int:event_id>")
-@require_auth(admin=True)
+@require_auth(permission="EVENT_MANAGE")
 def delete_event(event_id):
     with transaction() as conn:
         load_event(conn, event_id, lock=True)
@@ -183,7 +183,7 @@ def delete_event(event_id):
 
 
 @bp.get("/events/audience")
-@require_auth(admin=True)
+@require_auth(permission="EVENT_MANAGE")
 def event_audience():
     """등록, 수정 폼의 '표시 대상 재직자 N명'. targets=부서ID:하위포함(1|0) 쉼표 구분, 예: 3:1,7:0"""
     scope = request.args.get("scope", "DEPARTMENTS")

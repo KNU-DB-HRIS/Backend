@@ -258,7 +258,7 @@ def my_tasks():
 
 
 @bp.get("/evaluation-periods")
-@require_auth(admin=True)
+@require_auth(permission="EVALUATION_READ")
 def periods():
     with transaction() as conn:
         rows = all_rows(
@@ -275,7 +275,7 @@ def periods():
 
 
 @bp.get("/evaluation-periods/<int:period_id>/summary")
-@require_auth(admin=True)
+@require_auth(permission="EVALUATION_READ")
 def summary(period_id):
     with transaction() as conn:
         period, targets, records = evaluation_data(conn, period_id)
@@ -318,7 +318,7 @@ def summary(period_id):
 
 
 @bp.get("/evaluation-periods/<int:period_id>/participants")
-@require_auth(admin=True)
+@require_auth(permission="EVALUATION_READ")
 def participants(period_id):
     page, size = pagination()
     q = query_text()

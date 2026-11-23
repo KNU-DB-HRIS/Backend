@@ -15,7 +15,7 @@ CURRENT = "effective_date<=CURDATE()"
 
 
 @bp.get("/salaries")
-@require_auth(admin=True)
+@require_auth(permission="SALARY_READ")
 def listing():
     page, size = pagination()
     condition, params = employee_filter()
@@ -38,7 +38,7 @@ def listing():
 @bp.get("/employees/<int:employee_id>/salary")
 @require_auth()
 def current_salary(employee_id):
-    scope_employee(employee_id)
+    scope_employee(employee_id, "SALARY_READ")
     with transaction() as conn:
         employee_row(conn, employee_id)
         result = one(
@@ -56,7 +56,7 @@ def current_salary(employee_id):
 @bp.get("/employees/<int:employee_id>/salary-history")
 @require_auth()
 def history(employee_id):
-    scope_employee(employee_id)
+    scope_employee(employee_id, "SALARY_READ")
     with transaction() as conn:
         employee = employee_row(conn, employee_id)
         start = iso_date(request.args.get("from", employee["hire_date"].isoformat()), "from")
@@ -75,7 +75,7 @@ def history(employee_id):
 
 
 @bp.post("/employees/<int:employee_id>/salary-history")
-@require_auth(admin=True)
+@require_auth(permission="SALARY_UPDATE")
 def change_salary(employee_id):
     """SAL-04 급여 변경 등록. 총액은 받지 않고 네 항목 합으로 계산(항상 COMPLETE).
     적용일은 기존 최신 적용일보다 뒤 + 오늘 이전(sp_change_salary와 같은 규칙: 미래 예약은 범위 제외).

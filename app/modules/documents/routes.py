@@ -7,7 +7,8 @@ from app.db import all_rows, audit, insert, now, one, page_query, today, transac
 from app.errors import ApiError
 from app.modules.documents.pdf import render_pdf
 from app.modules.employees.services import assignments, employee_profile, employee_row
-from app.security import is_admin, require_auth, scope_employee
+from app.permissions import SALARY_DOCUMENTS
+from app.security import has_permission, require_auth
 from app.validation import body, choice_field, int_field, pagination, query_choice, query_int, text_field
 
 bp = Blueprint("documents", __name__)
@@ -29,8 +30,18 @@ MONEY_FIELDS = (
 )
 
 
+def document_scope(employee_id, kind):
+    """본인 문서는 누구나. 남의 문서는 DOCUMENT_ISSUE_OTHERS, 급여가 든 문서(급여명세서, 원천징수영수증)는 SALARY_READ도"""
+    if employee_id == g.actor["employee_id"]:
+        return
+    if not has_permission("DOCUMENT_ISSUE_OTHERS") or (
+        kind in SALARY_DOCUMENTS and not has_permission("SALARY_READ")
+    ):
+        raise ApiError("FORBIDDEN_SCOPE", 403)
+
+
 def issue(employee_id, kind, build_payload, key):
-    scope_employee(employee_id)
+    document_scope(employee_id, kind)
     path = None
     try:
         with transaction() as conn:
@@ -203,11 +214,15 @@ def documents():
     page, size = pagination()
     employee_id = query_int("employee_id")
     kind = query_choice("document_type", DOCUMENT_TYPES)
-    if not is_admin():
+    if not has_permission("DOCUMENT_ISSUE_OTHERS"):
         if employee_id is not None and employee_id != g.actor["employee_id"]:
             raise ApiError("FORBIDDEN_SCOPE", 403)
         employee_id = g.actor["employee_id"]
     conditions, params = ["e.company_id=:company"], {"company": g.actor["company_id"]}
+    if not has_permission("SALARY_READ"):
+        # 급여가 든 문서는 남의 것이 목록에 나오지 않음
+        conditions.append("(d.employee_id=:me OR d.document_type NOT IN ('PAYSLIP','WITHHOLDING'))")
+        params["me"] = g.actor["employee_id"]
     if employee_id is not None:
         conditions.append("d.employee_id=:employee")
         params["employee"] = employee_id
@@ -247,7 +262,7 @@ def document_file(document_id):
         )
     if not row:
         raise ApiError("DOCUMENT_NOT_FOUND", 404)
-    scope_employee(row["employee_id"])
+    document_scope(row["employee_id"], row["document_type"])
     root = current_app.config["STORAGE_DIR"].resolve()
     path = (root / row["file_path"]).resolve()
     if not path.is_relative_to(root) or not path.is_file():

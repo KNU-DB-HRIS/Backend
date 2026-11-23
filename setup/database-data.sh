@@ -33,7 +33,7 @@ if not path.exists():
         writer = csv.writer(file)
         writer.writerow(('username', 'password', 'role'))
         for username in usernames:
-            role = 'HR_ADMIN' if username == 'admin01' else 'EMPLOYEE'
+            role = {'admin01': 'HR_ADMIN', 'employee07': 'HR_MANAGER'}.get(username, 'EMPLOYEE')
             writer.writerow((username, secrets.token_urlsafe(20), role))
 with path.open(encoding='utf-8', newline='') as file:
     rows = list(csv.DictReader(file))

@@ -7,19 +7,10 @@ from flask import current_app
 from flask.cli import with_appcontext
 
 from app.db import all_rows, execute, insert, one, scalar, today, transaction, update
+from app.permissions import GRANTS, ROLES, all_permissions
 from app.security import create_account
 
 COMPANY_NUMBER = "999-99-99999"
-MENUS = (
-    ("DASHBOARD", "대시보드"),
-    ("EMPLOYEES", "인사 관리"),
-    ("PAYROLL", "급여 관리"),
-    ("ORGANIZATION", "조직 관리"),
-    ("EVALUATION", "평가 관리"),
-    ("DOCUMENTS", "전자 문서"),
-    ("SCHEDULE", "일정"),
-    ("AI", "HR AI"),
-)
 DEPARTMENTS = (
     ("HR", "인사팀"),
     ("DEV", "개발팀"),
@@ -47,20 +38,22 @@ STAGES = ("GOAL", "SELF", "PEER", "LEADER")
 
 
 def add_roles(conn):
+    """역할, 권한, 역할별 권한 (app/permissions.py의 표. 운영 DB는 023 마이그레이션이 같은 행을 넣음)"""
     ids = {}
-    for code, name in (("HR_ADMIN", "HR 관리자"), ("EMPLOYEE", "사원")):
+    for code, name in ROLES:
         execute(conn, "INSERT IGNORE INTO roles(role_code,role_name,is_active) VALUES(:code,:name,1)",
                 {"code": code, "name": name})
         ids[code] = scalar(conn, "SELECT role_id FROM roles WHERE role_code=:code AND is_active=1",
                            {"code": code})
         if not ids[code]:
             raise click.ClickException(f"Role is inactive: {code}")
-    for menu, name in MENUS:
-        code = f"MENU_{menu}"
+    for code, name, resource, action in all_permissions():
         execute(conn,
                 "INSERT IGNORE INTO permissions(permission_code,permission_name,resource_type,action_type,is_active) "
-                "VALUES(:code,:name,'menu','VIEW',1)", {"code": code, "name": name})
-        for role_code in (("HR_ADMIN", "EMPLOYEE") if menu in ("DASHBOARD", "EVALUATION", "DOCUMENTS", "SCHEDULE") else ("HR_ADMIN",)):
+                "VALUES(:code,:name,:resource,:action,1)",
+                {"code": code, "name": name, "resource": resource, "action": action})
+    for role_code, codes in GRANTS.items():
+        for code in sorted(codes):
             execute(conn,
                     "INSERT IGNORE INTO role_permissions(role_id,permission_id) "
                     "SELECT r.role_id,p.permission_id FROM roles r JOIN permissions p "
@@ -121,10 +114,8 @@ def add_people(conn, company_id, reference, role_ids, passwords):
             "current_salary": salary, "address": "가상 데이터 (개발용)",
         })
         employees[username] = employee_id
-        if index == 1:
-            role_code = "HR_ADMIN"
-        else:
-            role_code = "EMPLOYEE"
+        # 김서연 HR 관리자, 한수빈 인사 담당자, 나머지 사원 (인사 사원 예시는 관리자가 화면에서 역할을 줘서 만듦)
+        role_code = {"admin01": "HR_ADMIN", "employee07": "HR_MANAGER"}.get(username, "EMPLOYEE")
         users[username] = create_account(conn, employee_id, username, passwords[username], role_ids[role_code])
         if index == 1:
             execute(conn, "SET @hris_actor_user_id=:actor", {"actor": users[username]})
