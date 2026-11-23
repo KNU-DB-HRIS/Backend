@@ -50,6 +50,17 @@ LABELS = {
 }
 
 
+# 인사 발령 종류 코드 → 경력증명서에 쓰는 이름
+ACTION_NAMES = {
+    "HIRE": "입사",
+    "TRANSFER": "부서 이동",
+    "PROMOTION": "승진",
+    "JOB_CHANGE": "직무 변경",
+    "TITLE_CHANGE": "직책 변경",
+    "REASSIGNMENT": "복합 발령",
+    "TERMINATION": "퇴사",
+}
+
 def font_name():
     if "HRISKorean" in pdfmetrics.getRegisteredFontNames():
         return "HRISKorean"
@@ -100,7 +111,8 @@ def render_pdf(path, document_type, company, employee, payload, issued_at):
     story.extend([table, Spacer(1, 16)])
     if payload.get("career"):
         for row in payload["career"]:
-            text = f"{row['effective_date']} · {row['action_type']} · {row['department_name']} · {row['position_name']}"
+            action = ACTION_NAMES.get(row["action_type"], row["action_type"])
+            text = f"{row['effective_date']} · {action} · {row['department_name']} · {row['position_name']}"
             story.append(Paragraph(escape(text), normal))
         story.append(Spacer(1, 16))
     if document_type == "WITHHOLDING":
