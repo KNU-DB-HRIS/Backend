@@ -264,6 +264,16 @@ docker compose exec backend flask --app wsgi:app create-user --employee-id 2 --u
 
 DB에 이미 회사나 직원 데이터가 있으면 샘플 등록을 거부하고, 이미 정상 등록된 샘플 데이터에서 다시 실행하면 중복 생성하지 않습니다. 초기 데이터는 한 트랜잭션으로 등록하므로 오류가 나면 그 실행의 변경은 모두 롤백됩니다. `APP_ENV=production` 환경에서는 샘플 데이터 등록을 차단합니다.
 
+### 샘플 계정 비밀번호를 잊었을 때
+
+`.seed-credentials.csv`를 잃어버렸거나 비밀번호를 모를 때는 아래 명령으로 **샘플 계정 10개의 비밀번호를 새로 만듭니다**. 데이터는 그대로 두고 비밀번호만 바꾸며, 새 비밀번호는 `.seed-credentials.csv`에 다시 저장됩니다. 해당 계정의 기존 로그인은 모두 끊깁니다.
+
+```bash
+bash ./setup/reset-demo-passwords.sh
+```
+
+계정 하나만 바꿀 때는 `docker compose exec backend flask --app wsgi:app reset-password --username admin01`(비밀번호를 두 번 입력)을 사용합니다. 파일만 새로 만드는 것으로는 로그인할 수 없습니다. DB에는 비밀번호가 해시로만 저장되기 때문입니다.
+
 ## API 인증 예시
 
 로그인(`POST /auth/login`)과 내 정보 조회(`GET /auth/me`) 응답에 `csrf_token`이 들어 있고, `POST`, `PATCH`, `DELETE` 요청에는 이 값을 `X-CSRF-Token` 헤더로 보내야 합니다. **`/auth/me`를 호출할 때마다 토큰이 새로 발급되고 이전 토큰은 무효가 되므로**, 항상 가장 최근에 받은 토큰을 사용하세요. 아래 예시는 샘플 데이터의 관리자 계정으로 로그인하고, 내 정보를 조회하면서 받은 토큰으로 HR AI에 질문합니다.

@@ -11,6 +11,7 @@ dist/
 build/
 *.egg-info/
 .seed-credentials*.csv
+.seed-credentials.new.*
 .DS_Store
 ai/eval/out/
 .pytest_cache/
