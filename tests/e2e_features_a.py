@@ -323,6 +323,9 @@ def run():
     s, js = admin.call("GET", "/search?q=" + urllib.parse.quote(name04))
     a_items = (js or {}).get("employees", {}).get("items", [])
     check("Q5 관리자 검색은 그대로(재직 상태 포함)", s == 200 and a_items and "employment_status" in a_items[0], f"{s}")
+    s, js = admin.call("GET", "/search?q=" + urllib.parse.quote("개발"))
+    a_items = (js or {}).get("employees", {}).get("items", [])
+    check("Q6 관리자도 부서 이름으로 찾음", s == 200 and a_items and all("개발" in x["name"] or "개발" in (x["department_name"] or "") for x in a_items), f"{s} n={len(a_items)}")
 
 
 def cleanup():

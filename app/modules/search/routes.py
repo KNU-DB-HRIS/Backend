@@ -24,7 +24,8 @@ def search():
         if is_admin():
             condition = (
                 f"{EMPLOYEE_JOINS} WHERE e.company_id=:company AND "
-                "(e.employee_name LIKE :q ESCAPE '!' OR e.employee_no LIKE :q ESCAPE '!')"
+                "(e.employee_name LIKE :q ESCAPE '!' OR e.employee_no LIKE :q ESCAPE '!' "
+                "OR d.department_name LIKE :q ESCAPE '!')"
             )
             employees["total"] = scalar(conn, "SELECT COUNT(*) " + condition, params)
             employees["items"] = all_rows(
