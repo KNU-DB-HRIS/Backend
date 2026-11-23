@@ -80,7 +80,8 @@ def approval_detail(conn, identifier):
     steps = steps_for(conn, [identifier])[identifier]
     allowed = []
     if row["status"] == "DRAFT" and row["requester_user_id"] == g.actor["user_id"]:
-        allowed = ["SUBMIT"]
+        # 임시 저장: 결재선이 있어야 상신 가능, 수정과 삭제는 항상 가능 (APR-08, APR-09)
+        allowed = (["SUBMIT"] if steps else []) + ["EDIT", "DELETE"]
     elif row["status"] == "IN_PROGRESS" and any(
         step["status"] == "PENDING" and step["approver_user_id"] == g.actor["user_id"]
         for step in steps
@@ -103,6 +104,7 @@ def approval_detail(conn, identifier):
 
 
 def validate_approvers(conn, identifiers, submit):
+    """결재선 검사. 후보 조건은 USER-01(GET /users/approvers)과 같음: 같은 소속 회사, 계정 ACTIVE, 재직(휴직 제외), 본인 제외"""
     if not isinstance(identifiers, list) or len(identifiers) > 5 or (submit and not identifiers):
         raise ApiError("APPROVERS_INVALID")
     if any(type(value) is not int or value < 1 for value in identifiers):
@@ -116,7 +118,7 @@ def validate_approvers(conn, identifiers, submit):
             conn,
             "SELECT COUNT(*) FROM users u JOIN employees e ON e.employee_id=u.employee_id "
             f"WHERE u.user_id IN ({placeholders}) AND e.company_id=:company AND u.status='ACTIVE' "
-            "AND e.employment_status IN ('ACTIVE','ON_LEAVE') AND EXISTS "
+            "AND e.employment_status='ACTIVE' AND EXISTS "
             "(SELECT 1 FROM user_roles ur JOIN roles r ON r.role_id=ur.role_id "
             "WHERE ur.user_id=u.user_id AND r.is_active=1 AND r.role_code IN ('HR_ADMIN','EMPLOYEE'))",
             {**params, "company": g.actor["home_company_id"]},

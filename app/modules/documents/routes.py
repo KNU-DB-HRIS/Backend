@@ -3,12 +3,12 @@ import secrets
 
 from flask import Blueprint, current_app, g, send_file
 
-from app.db import all_rows, audit, insert, now, one, today, transaction
+from app.db import all_rows, audit, insert, now, one, page_query, today, transaction
 from app.errors import ApiError
 from app.modules.documents.pdf import render_pdf
 from app.modules.employees.services import assignments, employee_profile, employee_row
-from app.security import require_auth, scope_employee
-from app.validation import body, choice_field, int_field, text_field
+from app.security import is_admin, require_auth, scope_employee
+from app.validation import body, choice_field, int_field, pagination, query_choice, query_int, text_field
 
 bp = Blueprint("documents", __name__)
 
@@ -191,6 +191,48 @@ def withholding():
         }
 
     return issue(data["employee_id"], "WITHHOLDING", payload, "summary")
+
+
+DOCUMENT_TYPES = ("EMPLOYMENT", "CAREER", "PAYSLIP", "WITHHOLDING")
+
+
+@bp.get("/documents")
+@require_auth()
+def documents():
+    """DOC-05 발급 문서 목록. 사원은 본인 문서만(남의 employee_id면 403), 인사관리자는 현재 회사 전체 + 직원 필터. 최신 발급 순"""
+    page, size = pagination()
+    employee_id = query_int("employee_id")
+    kind = query_choice("document_type", DOCUMENT_TYPES)
+    if not is_admin():
+        if employee_id is not None and employee_id != g.actor["employee_id"]:
+            raise ApiError("FORBIDDEN_SCOPE", 403)
+        employee_id = g.actor["employee_id"]
+    conditions, params = ["e.company_id=:company"], {"company": g.actor["company_id"]}
+    if employee_id is not None:
+        conditions.append("d.employee_id=:employee")
+        params["employee"] = employee_id
+    if kind:
+        conditions.append("d.document_type=:kind")
+        params["kind"] = kind
+    source = (
+        "FROM documents d JOIN employees e ON e.employee_id=d.employee_id "
+        "LEFT JOIN users iu ON iu.user_id=d.issued_by_user_id "
+        "LEFT JOIN employees ie ON ie.employee_id=iu.employee_id WHERE " + " AND ".join(conditions)
+    )
+    with transaction() as conn:
+        result = page_query(
+            conn,
+            "d.document_id,d.document_type,d.employee_id,e.employee_name,d.file_name,d.issued_at,"
+            "ie.employee_name AS issued_by_name",
+            source,
+            params,
+            "d.issued_at DESC,d.document_id DESC",
+            page,
+            size,
+        )
+    for row in result["items"]:
+        row["file_url"] = f"/api/v1/documents/{row['document_id']}/file"
+    return result
 
 
 @bp.get("/documents/<int:document_id>/file")
