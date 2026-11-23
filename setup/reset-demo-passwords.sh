@@ -29,7 +29,7 @@ import secrets
 import sys
 
 usernames = ['admin01'] + [f'employee{n:02d}' for n in range(2, 11)]
-rows = [(name, secrets.token_urlsafe(20), 'HR_ADMIN' if name == 'admin01' else 'EMPLOYEE') for name in usernames]
+rows = [(name, secrets.token_urlsafe(20), {'admin01': 'HR_ADMIN', 'employee07': 'HR_MANAGER'}.get(name, 'EMPLOYEE')) for name in usernames]
 with open(sys.argv[1], 'w', encoding='utf-8', newline='') as file:
     writer = csv.writer(file)
     writer.writerow(('username', 'password', 'role'))

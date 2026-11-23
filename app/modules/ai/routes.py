@@ -31,7 +31,7 @@ def result(
 
 
 @bp.post("/ai/queries")
-@require_auth(admin=True, error_code="AI_ADMIN_ONLY")
+@require_auth(permission="AI_QUERY")
 def query():
     data = body(
         {"question": text_field(500), "conversation_id": text_field(200, True)}, ("question",)

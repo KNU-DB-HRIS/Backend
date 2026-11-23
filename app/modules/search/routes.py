@@ -3,7 +3,7 @@ from flask import Blueprint, g
 from app.db import all_rows, scalar, transaction
 from app.modules.approvals.services import APPROVAL_JOINS, visible_condition
 from app.modules.employees.services import EMPLOYEE_JOINS
-from app.security import is_admin, require_auth
+from app.security import has_permission, require_auth
 from app.validation import like, query_int, query_text
 
 bp = Blueprint("search", __name__)
@@ -21,7 +21,7 @@ def search():
     }
     employees = {"items": [], "total": 0}
     with transaction() as conn:
-        if is_admin():
+        if has_permission("EMPLOYEE_READ"):
             condition = (
                 f"{EMPLOYEE_JOINS} WHERE e.company_id=:company AND "
                 "(e.employee_name LIKE :q ESCAPE '!' OR e.employee_no LIKE :q ESCAPE '!' "

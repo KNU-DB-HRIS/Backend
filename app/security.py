@@ -9,6 +9,7 @@ from werkzeug.security import generate_password_hash
 
 from app.db import all_rows, insert, now, one, transaction, update
 from app.errors import ApiError
+from app.permissions import ROLE_RANK
 
 
 def digest(value):
@@ -84,30 +85,31 @@ def load_actor(conn, user_id, active_company_id=None):
         company_roles = company_role_rows(conn, user_id, active_company_id)
         if company_roles:
             actor["company_id"], roles = int(active_company_id), company_roles
-    actor["roles"] = [r["role_code"] for r in roles]
-    if not set(actor["roles"]) & {"HR_ADMIN", "EMPLOYEE"}:
+    roles = sorted((r for r in roles if r["role_code"] in ROLE_RANK), key=lambda r: ROLE_RANK[r["role_code"]])
+    if not roles:
         raise ApiError("FORBIDDEN", 403)
-    actor["role_label"] = next(
-        (r["role_name"] for r in roles if r["role_code"] == "HR_ADMIN"), roles[0]["role_name"]
-    )
+    actor["roles"] = [r["role_code"] for r in roles]
+    actor["role"] = roles[0]["role_code"]
+    actor["role_label"] = roles[0]["role_name"]
     role_params = {f"r{i}": r["role_id"] for i, r in enumerate(roles)}
     granted = all_rows(
         conn,
         "SELECT DISTINCT p.permission_code FROM permissions p "
         "JOIN role_permissions rp ON rp.permission_id=p.permission_id "
-        f"WHERE rp.role_id IN ({','.join(':' + k for k in role_params)}) AND p.is_active=1 "
-        "AND p.permission_code LIKE 'MENU_%'",
+        f"WHERE rp.role_id IN ({','.join(':' + k for k in role_params)}) AND p.is_active=1",
         role_params,
     )
+    codes = {p["permission_code"] for p in granted}
     order = ("DASHBOARD", "EMPLOYEES", "PAYROLL", "ORGANIZATION", "EVALUATION", "DOCUMENTS", "SCHEDULE", "AI")
-    allowed = {p["permission_code"].removeprefix("MENU_") for p in granted}
-    actor["menus"] = [menu for menu in order if menu in allowed]
+    actor["menus"] = [menu for menu in order if f"MENU_{menu}" in codes]
+    actor["permissions"] = sorted(code for code in codes if not code.startswith("MENU_"))
     actor["ip"] = request.remote_addr
     return actor
 
 
-def is_admin():
-    return "HR_ADMIN" in g.actor["roles"]
+def has_permission(code):
+    """동작 권한 (app/permissions.py, role_permissions). 역할 이름이 아니라 권한으로 판정"""
+    return code in g.actor["permissions"]
 
 
 def csrf_check(session):
@@ -116,7 +118,7 @@ def csrf_check(session):
         raise ApiError("CSRF_INVALID", 403)
 
 
-def require_auth(admin=False, error_code="FORBIDDEN"):
+def require_auth(permission=None, error_code="FORBIDDEN"):
     def decorate(function):
         @wraps(function)
         def wrapped(*args, **kwargs):
@@ -133,7 +135,7 @@ def require_auth(admin=False, error_code="FORBIDDEN"):
                     raise ApiError("UNAUTHENTICATED", 401)
                 g.actor = load_actor(conn, session["user_id"], session.get("active_company_id"))
                 g.auth_session = session
-                if admin and not is_admin():
+                if permission and not has_permission(permission):
                     raise ApiError(error_code, 403)
                 if request.method not in {"GET", "HEAD", "OPTIONS"}:
                     csrf_check(session)
@@ -152,8 +154,9 @@ def require_auth(admin=False, error_code="FORBIDDEN"):
     return decorate
 
 
-def scope_employee(employee_id):
-    if not is_admin() and g.actor["employee_id"] != employee_id:
+def scope_employee(employee_id, permission):
+    """본인 것은 누구나, 남의 것은 permission이 있어야"""
+    if g.actor["employee_id"] != employee_id and not has_permission(permission):
         raise ApiError("FORBIDDEN_SCOPE", 403)
 
 

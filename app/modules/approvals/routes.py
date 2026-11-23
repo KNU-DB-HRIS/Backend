@@ -44,7 +44,7 @@ APPROVER_SOURCE = (
     "LEFT JOIN job_titles t ON t.job_title_id=e.job_title_id "
     "WHERE e.company_id=:company AND u.status='ACTIVE' AND e.employment_status='ACTIVE' AND u.user_id<>:actor "
     "AND EXISTS (SELECT 1 FROM user_roles ur JOIN roles r ON r.role_id=ur.role_id WHERE ur.user_id=u.user_id "
-    "AND r.is_active=1 AND r.role_code IN ('HR_ADMIN','EMPLOYEE'))"
+    "AND r.is_active=1 AND r.role_code IN ('HR_ADMIN','HR_MANAGER','HR_STAFF','EMPLOYEE'))"
 )
 
 

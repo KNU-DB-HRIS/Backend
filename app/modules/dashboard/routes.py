@@ -92,7 +92,7 @@ def widget(function):
 
 
 @bp.get("/dashboard")
-@require_auth(admin=True)
+@require_auth(permission="DASHBOARD_COMPANY")
 def dashboard():
     if request.args:
         raise ApiError("VALIDATION_ERROR", details={"field": "query"})
@@ -115,7 +115,7 @@ def dashboard():
 
 
 @bp.get("/events")
-@require_auth(admin=True)
+@require_auth(permission="EVENT_MANAGE")
 def events():
     page, size = pagination()
     start = iso_date(request.args.get("from", today().isoformat()), "from")

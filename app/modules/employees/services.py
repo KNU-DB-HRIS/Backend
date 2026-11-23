@@ -2,6 +2,7 @@ from flask import g
 
 from app.db import all_rows, one
 from app.errors import ApiError
+from app.permissions import ROLE_RANK
 from app.validation import like, query_choice, query_int, query_text
 
 EMPLOYEE_FIELDS = (
@@ -52,6 +53,16 @@ def employee_detail(conn, identifier):
         "SELECT user_id,username,status FROM users WHERE employee_id=:id ORDER BY user_id LIMIT 1",
         {"id": identifier},
     )
+    if row["account"]:
+        roles = all_rows(
+            conn,
+            "SELECT r.role_code,r.role_name FROM user_roles ur JOIN roles r ON r.role_id=ur.role_id "
+            "WHERE ur.user_id=:user AND r.is_active=1",
+            {"user": row["account"]["user_id"]},
+        )
+        roles.sort(key=lambda r: ROLE_RANK.get(r["role_code"], 99))
+        row["account"]["role_code"] = roles[0]["role_code"] if roles else None
+        row["account"]["role_name"] = roles[0]["role_name"] if roles else None
     row["recent_assignments"] = assignments(conn, identifier, 3)
     return row
 
