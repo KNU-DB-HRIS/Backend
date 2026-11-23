@@ -3,7 +3,7 @@
 
 usage: python3 e2e_schedule.py <api_base> <Backend dir>   (샘플 데이터 db-seed-demo 필요, 비밀번호는 출력하지 않음)
 """
-import csv, json, os, subprocess, sys, urllib.error, urllib.request, http.cookiejar, uuid
+import atexit, csv, json, os, subprocess, sys, urllib.error, urllib.request, http.cookiejar, uuid
 from datetime import date, timedelta
 
 API, BDIR = sys.argv[1].rstrip("/"), sys.argv[2]
@@ -66,6 +66,31 @@ def my_ids(client):
 
 
 tag = uuid.uuid4().hex[:4]
+made_events = []
+
+
+def cleanup():
+    """테스트로 만든 일정, 부서(PLT/TMP+tag), 직원과 계정을 지움. 실패로 중간에 끝나도 실행 (FK 순서: 참조하는 쪽부터)"""
+    for event_id in made_events:
+        try:
+            admin.call("DELETE", f"/events/{event_id}")
+        except Exception:
+            pass
+    sql(" ".join([
+        f"SET @u = (SELECT user_id FROM users WHERE username = 'plat{tag}');",
+        f"SET @e = (SELECT employee_id FROM employees WHERE email = 'plat.{tag}@example.test');",
+        f"DELETE FROM hr_event_departments WHERE department_id IN (SELECT department_id FROM departments WHERE department_code IN ('PLT{tag}', 'TMP{tag}'));",
+        "DELETE FROM auth_sessions WHERE user_id = @u; DELETE FROM user_company_roles WHERE user_id = @u;",
+        "DELETE FROM user_roles WHERE user_id = @u; DELETE FROM audit_logs WHERE user_id = @u; DELETE FROM users WHERE user_id = @u;",
+        "DELETE FROM salary_history WHERE employee_id = @e; DELETE FROM assignment_history WHERE employee_id = @e;",
+        f"DELETE FROM employees WHERE employee_id = @e; DELETE FROM departments WHERE department_code IN ('PLT{tag}', 'TMP{tag}');",
+    ]))
+    left = sql(f"SELECT (SELECT COUNT(*) FROM departments WHERE department_code IN ('PLT{tag}', 'TMP{tag}')) "
+               f"+ (SELECT COUNT(*) FROM employees WHERE email = 'plat.{tag}@example.test') + (SELECT COUNT(*) FROM users WHERE username = 'plat{tag}')")
+    print(f"cleanup: 테스트 부서, 직원, 계정 남은 행 {left}")
+
+
+atexit.register(cleanup)
 day = (date.today() + timedelta(days=3)).isoformat()
 admin = Client(); me = admin.login("admin01")
 check("S0 메뉴에 일정(SCHEDULE) 포함", "SCHEDULE" in me["menus"], f"{me['menus']}")
@@ -93,7 +118,10 @@ def ev(title, scope, targets=None, **extra):
     body = {"title": f"{title} {tag}", "start_at": f"{day}T10:00", "end_at": f"{day}T11:00", "location": "3층 회의실", "scope": scope, **extra}
     if targets is not None:
         body["targets"] = targets
-    return admin.call("POST", "/events", body)
+    s, js = admin.call("POST", "/events", body)
+    if s == 201 and js:
+        made_events.append(js["event_id"])
+    return s, js
 
 
 # 등록
@@ -182,9 +210,7 @@ if os.path.exists(MEDIA):
 else:
     print("SKIP I1/I2 계열사 격리 (.seed-credentials-media.csv 없음)")
 
-# 정리(테스트로 만든 일정)
-for x in (e1, e2, e4):
-    admin.call("DELETE", f"/events/{x['event_id']}")
+# 정리는 cleanup()이 종료할 때 실행 (일정, 부서, 직원, 계정)
 passed = sum(ok for _, ok in results)
 print(f"\n{passed}/{len(results)} passed")
 sys.exit(0 if passed == len(results) else 1)
