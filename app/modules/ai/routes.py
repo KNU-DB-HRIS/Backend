@@ -7,7 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.errors import ApiError
 from app.modules.ai.executor import ExecutorConfigError, run_readonly
-from app.modules.ai.sql_policy import SAFE_FUNCTIONS, SAFE_TABLES, validate_sql
+from app.modules.ai.sql_policy import SAFE_FUNCTIONS, SAFE_TABLES, display_sql, validate_sql
 from app.security import require_auth
 from app.validation import body, text_field
 
@@ -15,14 +15,17 @@ bp = Blueprint("ai", __name__)
 
 
 def result(
-    status="FAILED", error=None, answer=None, sql=None, columns=None, rows=None, truncated=False
+    status="FAILED", error=None, answer=None, sql=None, columns=None, rows=None, truncated=False, shown_sql=None
 ):
+    """sql: 실제 실행한 SQL(회사 범위 하위 질의 포함, 한 줄). display_sql: 화면용(절마다 줄바꿈, 회사 범위는 scope_company_id로 안내)"""
     return {
         "query_id": "q_" + secrets.token_hex(8),
         "status": status,
         "error_code": error,
         "answer": answer,
         "sql": sql,
+        "display_sql": shown_sql,
+        "scope_company_id": g.actor["company_id"] if sql else None,
         "columns": columns or [],
         "rows": rows or [],
         "row_count": len(rows or []),
@@ -76,10 +79,15 @@ def query():
         )
     except (ExecutorConfigError, SQLAlchemyError):
         return result(error="SQL_EXECUTION_FAILED")
+    try:
+        shown = display_sql(generated["sql"])
+    except (ValueError, sqlglot.errors.SqlglotError):
+        shown = None
     return result(
         "ANSWERED" if rows else "NO_RESULT",
         answer=answer,
         sql=sql,
+        shown_sql=shown,
         columns=columns,
         rows=rows,
         truncated=truncated,

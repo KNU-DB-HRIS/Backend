@@ -50,10 +50,11 @@ def employee_detail(conn, identifier):
     row = employee_profile(conn, identifier)
     row["account"] = one(
         conn,
-        "SELECT user_id,username,status FROM users WHERE employee_id=:id ORDER BY user_id LIMIT 1",
+        "SELECT user_id,username,status,password_change_required FROM users WHERE employee_id=:id ORDER BY user_id LIMIT 1",
         {"id": identifier},
     )
     if row["account"]:
+        row["account"]["password_change_required"] = bool(row["account"]["password_change_required"])
         roles = all_rows(
             conn,
             "SELECT r.role_code,r.role_name FROM user_roles ur JOIN roles r ON r.role_id=ur.role_id "

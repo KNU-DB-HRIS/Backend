@@ -321,3 +321,20 @@ def test_ai_reader_sql_grants_only_safe_columns(monkeypatch):
     assert sql.count("GRANT SELECT") == len(_flask().SAFE_TABLES) and "ALL PRIVILEGES ON" not in sql
     monkeypatch.setenv("AI_DATABASE_URL", "mysql+pymysql://hris_app:Abcdefghijklmnop_1234@mysql:3306/hris")
     assert create_app().test_cli_runner().invoke(args=["ai-reader-sql"]).exit_code != 0  # 앱 계정 재사용 금지
+
+
+def test_display_sql_is_multiline_without_company_subqueries():
+    """화면용 SQL: 절마다 줄바꿈, 회사 범위 하위 질의 없음, LIMIT은 실행과 같음 (실행 SQL은 그대로 한 줄)"""
+    policy = _flask()
+    sql = ("SELECT d.department_name AS `부서명`, COUNT(*) AS `재직 인원` FROM employees e JOIN departments d "
+           "ON d.department_id = e.department_id WHERE e.employment_status = 'ACTIVE' AND d.is_active = 1 "
+           "GROUP BY d.department_name ORDER BY `재직 인원` DESC")
+    executed = policy.validate_sql(sql, 1)
+    shown = policy.display_sql(sql)
+    assert "\n" not in executed and "company_id=1" in executed.replace(" ", "")
+    lines = shown.splitlines()
+    assert len(lines) >= 8 and lines[0].strip() == "SELECT"
+    assert "company_id" not in shown and "`부서명`" in shown and "`재직 인원`" in shown
+    assert lines[-1].strip() == "LIMIT 200"
+    assert policy.display_sql(sql + " LIMIT 5").splitlines()[-1].strip() == "LIMIT 5"
+

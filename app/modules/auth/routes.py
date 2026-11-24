@@ -18,6 +18,19 @@ def password_field(value, field):
     return value
 
 
+PASSWORD_MIN_LENGTH = 12
+
+
+def check_new_password(new, current, username):
+    """새 비밀번호 규칙: 12~128자, 지금 비밀번호와 다르게, 아이디를 그대로 넣지 않게"""
+    if len(new) < PASSWORD_MIN_LENGTH or len(new) > 128 or new.strip() != new:
+        raise ApiError("PASSWORD_POLICY", 422, details={"field": "new_password", "min_length": PASSWORD_MIN_LENGTH})
+    if username.casefold() in new.casefold():
+        raise ApiError("PASSWORD_POLICY", 422, details={"field": "new_password", "reason": "contains_username"})
+    if new == current:
+        raise ApiError("PASSWORD_REUSED", 422, details={"field": "new_password"})
+
+
 @bp.post("/auth/login")
 def login():
     data = body(
@@ -89,6 +102,7 @@ def login():
         employee_id=g.actor["employee_id"],
         employee_name=g.actor["employee_name"],
         roles=g.actor["roles"],
+        password_change_required=g.actor["password_change_required"],
         csrf_token=csrf,
     )
     response.set_cookie(
@@ -100,7 +114,7 @@ def login():
 
 
 @bp.post("/auth/logout")
-@require_auth()
+@require_auth(allow_password_change=True)
 def logout():
     with transaction() as conn:
         update(conn, "auth_sessions", "session_id", g.auth_session["session_id"],
@@ -138,13 +152,14 @@ def session_payload(conn):
         "permissions": g.actor["permissions"],
         "company": {"company_id": g.actor["company_id"], "name": current["name"] if current else None},
         "home_company_id": g.actor["home_company_id"],
+        "password_change_required": g.actor["password_change_required"],
         "companies": companies,
         "csrf_token": csrf,
     }
 
 
 @bp.get("/auth/me")
-@require_auth()
+@require_auth(allow_password_change=True)
 def me():
     with transaction() as conn:
         return session_payload(conn)
@@ -167,3 +182,48 @@ def switch_company():
         g.actor["ip"] = request.remote_addr
         audit(conn, "COMPANY_SWITCHED", "company", g.actor["company_id"])
         return session_payload(conn)
+
+
+@bp.post("/auth/password")
+@require_auth(allow_password_change=True)
+def change_password():
+    """내 비밀번호 변경. 임시 비밀번호(첫 로그인, 초기화 직후)면 이것부터 해야 다른 API를 쓸 수 있음.
+    지금 비밀번호가 틀리면 15분에 10번까지(로그인과 같은 제한), 성공하면 내 다른 세션은 모두 끊김"""
+    data = body(
+        {"current_password": password_field, "new_password": password_field},
+        required=("current_password", "new_password"),
+    )
+    attempt_key = digest(f"password-change:{g.actor['user_id']}")
+    failure = None
+    with transaction() as conn:
+        execute(conn, "INSERT IGNORE INTO auth_login_attempts VALUES(:key,0,:at)", {"key": attempt_key, "at": now()})
+        attempts = one(conn, "SELECT * FROM auth_login_attempts WHERE attempt_key=:key FOR UPDATE", {"key": attempt_key})
+        if attempts["window_started_at"] < now() - timedelta(minutes=15):
+            update(conn, "auth_login_attempts", "attempt_key", attempt_key, {"failures": 0, "window_started_at": now()})
+            attempts["failures"] = 0
+        if attempts["failures"] >= 10:
+            raise ApiError("RATE_LIMITED", 429)
+        user = one(conn, "SELECT user_id,username,password_hash FROM users WHERE user_id=:id FOR UPDATE",
+                   {"id": g.actor["user_id"]})
+        if not check_password_hash(user["password_hash"], data["current_password"]):
+            update(conn, "auth_login_attempts", "attempt_key", attempt_key, {"failures": attempts["failures"] + 1})
+            failure = ApiError("CURRENT_PASSWORD_INVALID", 422, details={"field": "current_password"})
+        else:
+            check_new_password(data["new_password"], data["current_password"], user["username"])
+            update(conn, "users", "user_id", user["user_id"], {
+                "password_hash": generate_password_hash(data["new_password"]),
+                "password_change_required": False, "password_changed_at": now(),
+            })
+            execute(
+                conn,
+                "UPDATE auth_sessions SET revoked_at=:at WHERE user_id=:user AND session_id<>:sid AND revoked_at IS NULL",
+                {"at": now(), "user": user["user_id"], "sid": g.auth_session["session_id"]},
+            )
+            update(conn, "auth_login_attempts", "attempt_key", attempt_key, {"failures": 0})
+            audit(conn, "PASSWORD_CHANGED", "user", user["user_id"])
+            g.actor = load_actor(conn, user["user_id"], g.auth_session.get("active_company_id"))
+            g.actor["ip"] = request.remote_addr
+            payload = session_payload(conn)
+    if failure:
+        raise failure
+    return payload
