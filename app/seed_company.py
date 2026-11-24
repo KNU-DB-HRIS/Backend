@@ -236,14 +236,22 @@ def db_seed_company(company_id, size, prefix):
                 "status": {"APPROVED": "APPROVED", "REJECTED": "REJECTED", "IN_PROGRESS": "PENDING"}.get(status, "WAITING"),
             })
 
-        for days, title, target in ((2, "신규 콘텐츠 기획 회의", "콘텐츠기획팀"), (6, "분기 영상 성과 리뷰", "전사"),
+        # 일정 3건: 부서 일정은 표시 대상 조직(hr_event_departments, 하위 포함)으로 저장해 사원별 표시 범위까지 시험할 수 있게 한다
+        department_by_name = {name: departments[code] for code, name in DEPARTMENTS}
+        for days, title, target in ((2, "신규 콘텐츠 기획 회의", "콘텐츠기획팀"), (6, "분기 영상 성과 리뷰", None),
                                     (14, "브랜드 캠페인 킥오프", "마케팅팀")):
             event_date = today() + timedelta(days=days)
-            insert(conn, "hr_events", {
-                "company_id": company_id, "title": title, "target": target,
+            event_id = insert(conn, "hr_events", {
+                "company_id": company_id, "title": title, "target": f"{target}, 하위 포함" if target else "전사",
+                "scope": "DEPARTMENTS" if target else "COMPANY", "created_by_user_id": admin,
                 "start_at": datetime.combine(event_date, time(10, 0)), "end_at": datetime.combine(event_date, time(11, 0)),
                 "location": "샘플 회의실", "all_day": False,
             })
+            if target:
+                insert(conn, "hr_event_departments", {
+                    "event_id": event_id, "company_id": company_id,
+                    "department_id": department_by_name[target], "include_children": True,
+                })
     click.echo(
         f"Sample data created for {company['company_name']}: {len(DEPARTMENTS)} departments, {size} employees "
         f"({len(accounts)} accounts: {', '.join(accounts)}), payroll, attendance, evaluations, approvals and events."
