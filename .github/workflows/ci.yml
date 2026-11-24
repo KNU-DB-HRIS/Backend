@@ -86,6 +86,10 @@ jobs:
         run: |
           port="$(sed -n 's/^BACKEND_PORT=//p' .env | tail -1)"; port="${port##*:}"
           python3 tests/e2e_roles.py "http://127.0.0.1:${port:-8080}/api/v1" .
+      - name: First-login password change E2E (temporary password, admin reset)
+        run: |
+          port="$(sed -n 's/^BACKEND_PORT=//p' .env | tail -1)"; port="${port##*:}"
+          python3 tests/e2e_password.py "http://127.0.0.1:${port:-8080}/api/v1" .
       - name: Password reset check
         run: |
           port="$(sed -n 's/^BACKEND_PORT=//p' .env | tail -1)"; port="${port##*:}"

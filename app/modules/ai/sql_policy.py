@@ -103,6 +103,17 @@ def requested_limit(tree):
     return None
 
 
+def display_sql(sql):
+    """화면용 SQL: 검증을 통과한 생성 SQL을 절마다 줄바꿈(sqlglot pretty)하고 LIMIT은 실행과 같게.
+    실행 SQL의 회사 범위 하위 질의(SELECT 허용 열 FROM t WHERE company_id=N)는 길어서 빼고, 화면에 따로 안내.
+    validate_sql을 통과한 뒤에만 부를 것"""
+    tree = sqlglot.parse_one(sql, read="mysql")
+    wanted = requested_limit(tree)
+    limit = wanted if wanted is not None and 1 <= wanted <= MAX_LIMIT else MAX_LIMIT
+    tree.set("limit", exp.Limit(expression=exp.Literal.number(limit)))
+    return tree.sql(dialect="mysql", pretty=True)
+
+
 def validate_sql(sql, company_id):
     if (
         not isinstance(sql, str)

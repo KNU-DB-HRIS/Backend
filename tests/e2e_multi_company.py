@@ -36,9 +36,14 @@ class Client:
         return status, js
 
     def login(self, user, password=None):
-        s, _ = self.call("POST", "/auth/login", {"username": user, "password": password or CREDS[user]})
+        pw = password or CREDS[user]
+        s, _ = self.call("POST", "/auth/login", {"username": user, "password": pw})
         assert s == 200, f"login {user} -> {s}"
-        return self.call("GET", "/auth/me")[1]
+        me = self.call("GET", "/auth/me")[1]
+        if me and me.get("password_change_required"):  # 임시 비밀번호 계정(024): 새 비밀번호부터 정함
+            s, me = self.call("POST", "/auth/password", {"current_password": pw, "new_password": pw + "-n1"})
+            assert s == 200, f"password change {user} -> {s}"
+        return me
 
 
 def check(name, cond, detail=""):

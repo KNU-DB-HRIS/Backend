@@ -5,7 +5,7 @@
 
 같은 표를 두 곳에서 쓴다
 - 새 DB: 시드(add_roles)가 이 표로 roles, permissions, role_permissions를 만든다
-- 운영 DB: database/023_role_permissions.sql 이 같은 행을 넣는다 (tests/e2e_roles.py가 DB와 이 표를 대조)
+- 운영 DB: database/023_role_permissions.sql, 024_password_change.sql 이 같은 행을 넣는다 (tests/e2e_roles.py가 DB와 이 표를 대조)
 """
 
 ROLES = (
@@ -39,6 +39,7 @@ ACTIONS = {
     "EMPLOYEE_TERMINATE": ("퇴사 처리", "employee", "TERMINATE"),
     "EMPLOYEE_DELETE": ("오등록 직원 삭제", "employee", "DELETE"),
     "ROLE_MANAGE": ("계정 역할 변경", "user", "UPDATE"),
+    "PASSWORD_RESET": ("계정 비밀번호 초기화", "user", "RESET"),
     "SALARY_READ": ("다른 직원 급여 조회", "salary", "READ"),
     "SALARY_UPDATE": ("급여 변경 등록", "salary", "UPDATE"),
     "ORG_READ": ("조직, 회사 정보 조회", "organization", "READ"),

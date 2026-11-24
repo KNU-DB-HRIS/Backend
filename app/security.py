@@ -16,7 +16,8 @@ def digest(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def create_account(conn, employee_id, username, password, role_id):
+def create_account(conn, employee_id, username, password, role_id, must_change=False):
+    """must_change: 관리자가 정한 임시 비밀번호면 True (첫 로그인 때 새 비밀번호를 정해야 함, 024)"""
     user_id = insert(
         conn,
         "users",
@@ -25,6 +26,7 @@ def create_account(conn, employee_id, username, password, role_id):
             "username": username,
             "password_hash": generate_password_hash(password),
             "status": "ACTIVE",
+            "password_change_required": bool(must_change),
         },
     )
     insert(conn, "user_roles", {"user_id": user_id, "role_id": role_id})
@@ -63,7 +65,7 @@ def accessible_companies(conn, user_id, home_company_id):
 def load_actor(conn, user_id, active_company_id=None):
     actor = one(
         conn,
-        "SELECT u.user_id,u.username,u.status,e.employee_id,e.employee_name,"
+        "SELECT u.user_id,u.username,u.status,u.password_change_required,e.employee_id,e.employee_name,"
         "e.employee_no,e.company_id,e.employment_status,d.department_name,p.position_name "
         "FROM users u JOIN employees e ON e.employee_id=u.employee_id "
         "JOIN companies c ON c.company_id=e.company_id AND c.is_active=1 "
@@ -74,6 +76,7 @@ def load_actor(conn, user_id, active_company_id=None):
     if not actor or actor["status"] != "ACTIVE" or actor["employment_status"] == "TERMINATED":
         raise ApiError("UNAUTHENTICATED", 401)
     actor["home_company_id"] = actor["company_id"]
+    actor["password_change_required"] = bool(actor["password_change_required"])
     roles = all_rows(
         conn,
         "SELECT r.role_id,r.role_code,r.role_name FROM roles r JOIN user_roles ur "
@@ -118,7 +121,9 @@ def csrf_check(session):
         raise ApiError("CSRF_INVALID", 403)
 
 
-def require_auth(permission=None, error_code="FORBIDDEN"):
+def require_auth(permission=None, error_code="FORBIDDEN", allow_password_change=False):
+    """allow_password_change: 임시 비밀번호 상태(첫 로그인, 초기화 직후)에서도 부를 수 있는 API
+    (/auth/me, /auth/password, /auth/logout). 나머지는 새 비밀번호를 정하기 전까지 403 PASSWORD_CHANGE_REQUIRED"""
     def decorate(function):
         @wraps(function)
         def wrapped(*args, **kwargs):
@@ -135,6 +140,8 @@ def require_auth(permission=None, error_code="FORBIDDEN"):
                     raise ApiError("UNAUTHENTICATED", 401)
                 g.actor = load_actor(conn, session["user_id"], session.get("active_company_id"))
                 g.auth_session = session
+                if g.actor["password_change_required"] and not allow_password_change:
+                    raise ApiError("PASSWORD_CHANGE_REQUIRED", 403)
                 if permission and not has_permission(permission):
                     raise ApiError(error_code, 403)
                 if request.method not in {"GET", "HEAD", "OPTIONS"}:

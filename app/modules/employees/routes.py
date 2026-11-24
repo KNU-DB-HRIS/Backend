@@ -2,6 +2,7 @@ import secrets
 
 from flask import Blueprint, g
 from sqlalchemy.exc import IntegrityError
+from werkzeug.security import generate_password_hash
 
 from app.db import (
     all_rows,
@@ -9,6 +10,7 @@ from app.db import (
     execute,
     insert,
     lock_company,
+    now,
     one,
     page_query,
     scalar,
@@ -169,7 +171,7 @@ def create_employee():
                 raise ApiError("REFERENCE_INVALID", details={"field": "EMPLOYEE role"})
             temporary = secrets.token_urlsafe(18)
             try:
-                create_account(conn, employee_id, username, temporary, role["role_id"])
+                create_account(conn, employee_id, username, temporary, role["role_id"], must_change=True)
             except IntegrityError:
                 raise ApiError("USERNAME_DUPLICATE", 409) from None
         audit(conn, "EMPLOYEE_CREATED", "employee", employee_id)
@@ -444,4 +446,41 @@ def change_role(employee_id):
         "username": account["username"],
         "role_code": role["role_code"],
         "role_name": role["role_name"],
+    }
+
+
+@bp.post("/employees/<int:employee_id>/password-reset")
+@require_auth(permission="PASSWORD_RESET")
+def reset_password(employee_id):
+    """계정 비밀번호 초기화 (HR 관리자). 새 임시 비밀번호를 한 번만 돌려주고, 그 계정의 세션을 모두 끊음.
+    직원은 임시 비밀번호로 로그인한 뒤 새 비밀번호를 정해야 다른 화면을 쓸 수 있음 (첫 로그인과 같은 흐름)"""
+    with transaction() as conn:
+        employee = employee_row(conn, employee_id, True)
+        if employee["employment_status"] == "TERMINATED":
+            raise ApiError("EMPLOYEE_TERMINATED", 409)
+        account = one(
+            conn,
+            "SELECT user_id,username,status FROM users WHERE employee_id=:id ORDER BY user_id LIMIT 1 FOR UPDATE",
+            {"id": employee_id},
+        )
+        if not account:
+            raise ApiError("ACCOUNT_NOT_FOUND", 404)
+        if account["user_id"] == g.actor["user_id"]:
+            raise ApiError("SELF_PASSWORD_RESET", 409)
+        temporary = secrets.token_urlsafe(18)
+        update(conn, "users", "user_id", account["user_id"], {
+            "password_hash": generate_password_hash(temporary), "password_change_required": True,
+        })
+        execute(
+            conn,
+            "UPDATE auth_sessions SET revoked_at=:at WHERE user_id=:user AND revoked_at IS NULL",
+            {"at": now(), "user": account["user_id"]},
+        )
+        audit(conn, "PASSWORD_RESET", "user", account["user_id"])
+    return {
+        "employee_id": employee_id,
+        "user_id": account["user_id"],
+        "username": account["username"],
+        "temporary_password": temporary,
+        "password_change_required": True,
     }
