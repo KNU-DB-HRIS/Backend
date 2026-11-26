@@ -224,6 +224,39 @@ def history(employee_id):
         return page_result(assignments(conn, employee_id), page, size)
 
 
+# 휴직·복직 (제안서 HR-05 '재직 상태 수정'): 소속은 그대로, 재직 상태만 바꾸고 발령 이력에 남김. 퇴사는 /termination
+STATUS_ACTIONS = {"LEAVE": ("ACTIVE", "ON_LEAVE"), "RETURN": ("ON_LEAVE", "ACTIVE")}
+
+
+def change_status(conn, employee, data):
+    before, after = STATUS_ACTIONS[data["action_type"]]
+    if employee["employment_status"] != before:
+        raise ApiError("INVALID_STATUS_TRANSITION", 409,
+                       details={"from": employee["employment_status"], "action": data["action_type"]})
+    employee_id = employee["employee_id"]
+    current = {key: employee[key] for key in ORG_COLUMNS}
+    assignment_id = insert(
+        conn,
+        "assignment_history",
+        {
+            **data,
+            "employee_id": employee_id,
+            "action_date": today(),
+            "created_by_user_id": g.actor["user_id"],
+            **{f"from_{key}": value for key, value in current.items()},
+            **{f"to_{key}": value for key, value in current.items()},
+        },
+    )
+    update(conn, "employees", "employee_id", employee_id, {"employment_status": after})
+    audit(conn, "EMPLOYEE_STATUS_CHANGED", "employee", employee_id)
+    assignment = one(
+        conn,
+        f"SELECT {ASSIGNMENT_FIELDS} FROM vw_assignment_timeline WHERE assignment_history_id=:id",
+        {"id": assignment_id},
+    )
+    return {"assignment": assignment, "employee": {"employee_id": employee_id, **current, "employment_status": after}}, 201
+
+
 @bp.post("/employees/<int:employee_id>/assignments")
 @require_auth(permission="EMPLOYEE_ASSIGN")
 def assign(employee_id):
@@ -244,8 +277,10 @@ def assign(employee_id):
     }
     if action == "TERMINATION":
         raise ApiError("USE_TERMINATION_ENDPOINT")
-    if action not in {*kinds, "REASSIGNMENT"}:
+    if action not in {*kinds, "REASSIGNMENT", *STATUS_ACTIONS}:
         raise ApiError("VALIDATION_ERROR", details={"field": "action_type"})
+    if action in STATUS_ACTIONS and any(f"to_{key}" in data for key in ORG_COLUMNS):
+        raise ApiError("VALIDATION_ERROR", details={"field": "to_*", "reason": "휴직·복직은 소속을 바꾸지 않음"})
     with transaction() as conn:
         lock_company(conn, g.actor["company_id"])
         employee = employee_row(conn, employee_id, True)
@@ -255,6 +290,8 @@ def assign(employee_id):
             raise ApiError("FUTURE_DATE_NOT_SUPPORTED")
         if data["effective_date"] < employee["hire_date"]:
             raise ApiError("EFFECTIVE_BEFORE_HIRE")
+        if action in STATUS_ACTIONS:
+            return change_status(conn, employee, data)
         targets = {key: data.get(f"to_{key}", employee[key]) for key in ORG_COLUMNS}
         for key, table in ORG_COLUMNS.items():
             validate_reference(conn, table, key, targets[key])
