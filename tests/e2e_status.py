@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""재직 상태(휴직·복직)와 직급 필터 E2E (제안서 HR-03, HR-05, ORG-05)
+"""재직 상태(휴직·복직), 발령 날짜 순서, 직급 필터 E2E (제안서 HR-03, HR-05, ORG-05)
 
 usage: python3 e2e_status.py <api_base> <Backend dir>   (샘플 데이터 db-seed-demo 필요, 비밀번호는 출력하지 않음)
 - 임시 직원 1명(계정 없음)을 만들어 검사한 뒤 지움
@@ -92,6 +92,28 @@ check("P3 직급 + 부서 + 재직 상태 함께", s == 200 and eid in {x["emplo
       and all(x["department_name"] == "개발팀" for x in js["items"]), s)
 s, js = admin.call("GET", "/employees?position_id=abc")
 check("P4 직급 값이 숫자가 아니면 422", s == 422, f"{s} {code(js)}")
+
+# ---------------- 날짜 순서: 마지막 발령보다 앞선 날짜 거부 (같은 날 허용) ----------------
+d10, d15, d12, d11 = (today - timedelta(days=n) for n in (10, 15, 12, 11))
+s, js = admin.call("POST", f"/employees/{eid}/assignments", {"action_type": "TRANSFER", "effective_date": d10.isoformat(),
+                                                           "reason": "E2E 순서", "to_department_id": deps["인사팀"]})
+check("D1 부서 이동(10일 전) 201", s == 201, f"{s} {code(js)}")
+s, js = admin.call("POST", f"/employees/{eid}/assignments", {"action_type": "TRANSFER", "effective_date": d15.isoformat(),
+                                                           "reason": "E2E 역순", "to_department_id": deps["개발팀"]})
+s2, d = admin.call("GET", f"/employees/{eid}")
+check("D2 그보다 앞선 날짜(15일 전) 발령 409 EFFECTIVE_DATE_NOT_LATEST, 소속 그대로",
+      s == 409 and code(js) == "EFFECTIVE_DATE_NOT_LATEST" and d["department_id"] == deps["인사팀"], f"{s} {code(js)}")
+s, js = admin.call("POST", f"/employees/{eid}/assignments", {"action_type": "LEAVE", "effective_date": d11.isoformat(), "reason": "E2E 역순"})
+s2, d = admin.call("GET", f"/employees/{eid}")
+check("D3 앞선 날짜 휴직 409, 재직 상태 그대로", s == 409 and code(js) == "EFFECTIVE_DATE_NOT_LATEST" and d["employment_status"] == "ACTIVE",
+      f"{s} {code(js)}")
+s, js = admin.call("POST", f"/employees/{eid}/termination", {"termination_date": d12.isoformat(), "reason": "E2E 역순"})
+s2, d = admin.call("GET", f"/employees/{eid}")
+check("D4 앞선 날짜 퇴사 409, 재직 상태 그대로", s == 409 and code(js) == "EFFECTIVE_DATE_NOT_LATEST" and d["employment_status"] == "ACTIVE",
+      f"{s} {code(js)}")
+s, js = admin.call("POST", f"/employees/{eid}/assignments", {"action_type": "TRANSFER", "effective_date": d10.isoformat(),
+                                                           "reason": "E2E 같은 날", "to_department_id": deps["개발팀"]})
+check("D5 같은 날 발령은 허용 201 (개발팀으로 되돌림)", s == 201, f"{s} {code(js)}")
 
 # ---------------- 휴직·복직 (HR-05) ----------------
 base = {"effective_date": today.isoformat(), "reason": "E2E 상태 검사"}
