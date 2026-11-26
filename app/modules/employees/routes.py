@@ -224,6 +224,18 @@ def history(employee_id):
         return page_result(assignments(conn, employee_id), page, size)
 
 
+def check_not_before_latest(conn, employee_id, effective_date):
+    """발령, 휴직·복직, 퇴사 날짜는 마지막 발령(입사 포함) 날짜보다 앞설 수 없음 (같은 날은 허용).
+    앞선 날짜를 받으면 현재 소속·상태가 날짜상 더 오래된 이력 기준으로 바뀌어 이력과 어긋남 (급여의 EFFECTIVE_DATE_NOT_LATEST와 같은 규칙)"""
+    latest = scalar(
+        conn,
+        "SELECT MAX(COALESCE(effective_date,action_date)) FROM assignment_history WHERE employee_id=:id",
+        {"id": employee_id},
+    )
+    if latest and effective_date < latest:
+        raise ApiError("EFFECTIVE_DATE_NOT_LATEST", 409, details={"latest_effective_date": latest.isoformat()})
+
+
 # 휴직·복직 (제안서 HR-05 '재직 상태 수정'): 소속은 그대로, 재직 상태만 바꾸고 발령 이력에 남김. 퇴사는 /termination
 STATUS_ACTIONS = {"LEAVE": ("ACTIVE", "ON_LEAVE"), "RETURN": ("ON_LEAVE", "ACTIVE")}
 
@@ -290,6 +302,7 @@ def assign(employee_id):
             raise ApiError("FUTURE_DATE_NOT_SUPPORTED")
         if data["effective_date"] < employee["hire_date"]:
             raise ApiError("EFFECTIVE_BEFORE_HIRE")
+        check_not_before_latest(conn, employee_id, data["effective_date"])
         if action in STATUS_ACTIONS:
             return change_status(conn, employee, data)
         targets = {key: data.get(f"to_{key}", employee[key]) for key in ORG_COLUMNS}
@@ -353,6 +366,7 @@ def terminate(employee_id):
             raise ApiError("FUTURE_DATE_NOT_SUPPORTED")
         if data["termination_date"] < employee["hire_date"]:
             raise ApiError("TERMINATION_BEFORE_HIRE")
+        check_not_before_latest(conn, employee_id, data["termination_date"])
         update(
             conn,
             "employees",
