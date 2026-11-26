@@ -58,6 +58,8 @@ ACTION_NAMES = {
     "JOB_CHANGE": "직무 변경",
     "TITLE_CHANGE": "직책 변경",
     "REASSIGNMENT": "복합 발령",
+    "LEAVE": "휴직",
+    "RETURN": "복직",
     "TERMINATION": "퇴사",
 }
 

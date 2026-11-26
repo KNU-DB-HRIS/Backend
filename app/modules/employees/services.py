@@ -100,6 +100,7 @@ def employee_filter():
     conditions, params = ["e.company_id=:company"], {"company": g.actor["company_id"]}
     q = query_text()
     department = query_int("department_id")
+    position = query_int("position_id")
     status = query_choice("employment_status", ("ACTIVE", "ON_LEAVE", "TERMINATED"))
     if q:
         conditions.append(
@@ -110,6 +111,9 @@ def employee_filter():
     if department:
         conditions.append("e.department_id=:department")
         params["department"] = department
+    if position:  # 제안서 HR-03, ORG-05: 직급으로도 필터
+        conditions.append("e.position_id=:position")
+        params["position"] = position
     if status:
         conditions.append("e.employment_status=:status")
         params["status"] = status
