@@ -124,7 +124,8 @@ check("P3 같은 적용일 거부", not ok and "latest salary" in msg, msg)
 ok, msg = call_proc(f"CALL sp_change_salary({eid}, 4100000, '{(today + timedelta(days=1)).isoformat()}', 'E2E 미래', {uid})")
 check("P4 미래 적용일 거부", not ok and "Future" in msg, msg)
 s, sal = admin.call("GET", f"/employees/{eid}/salary-history")
-check("P5 앱 급여 이력 API에도 같은 1건", s == 200 and sal.get("total") == 1, f"{s} {sal and sal.get('total')}")
+items = (sal or {}).get("items", [])
+check("P5 앱 급여 이력 API에도 같은 1건", s == 200 and len(items) == 1 and int(float(items[0]["new_salary"])) == 4000000, f"{s} {len(items)}")
 
 # ---------------- sp_approve_step ----------------
 a4 = emp04.me["user_id"]
